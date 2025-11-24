@@ -1,0 +1,75 @@
+{% set version = "21.1.5" %}
+
+package:
+  name: mlir-python-bindings
+  version: {{ version }}
+
+source:
+  - url: https://github.com/llvm/llvm-project/releases/download/llvmorg-{{ version.replace(".rc", "-rc") }}/llvm-project-{{ version.replace(".rc", "-rc") }}.src.tar.xz
+    sha256: 1794be4bf974e99a3fe1da4b2b9b1456c02ae9479c942f365441d8d207bd650c
+    patches:
+      # https://reviews.llvm.org/D99470
+      - 0001-Support-cross-compiling-standalone-MLIR.patch
+
+build:
+  number: 0
+  always_include_files:
+    # Must overwrite cmake metadata from mlir
+    - lib/cmake/mlir/          # [unix]
+    - Library/lib/cmake/mlir/  # [win]
+
+requirements:
+  build:
+    - cmake
+    - ninja
+    - {{ compiler('cxx') }}
+    - {{ stdlib('c') }}
+    - llvmdev {{ version }}  # [build_platform != target_platform]
+    - cross-python_{{ target_platform }}  # [build_platform != target_platform]
+    - python                 # [build_platform != target_platform]
+    - numpy                  # [build_platform != target_platform]
+    - nanobind >=2.4.0       # [build_platform != target_platform]
+    - pybind11 >=2.8.0       # [build_platform != target_platform]
+    # for native mlir-tblgen
+    - mlir                   # [build_platform != target_platform]
+    - zlib                   # [build_platform != target_platform]
+    - zstd                   # [build_platform != target_platform]
+  host:
+    - llvmdev {{ version }}
+    - llvm {{ version }}
+    - mlir  {{ version }}
+    - libmlir
+    - zlib
+    - zstd      # [win]
+    - python
+    - numpy
+    - nanobind >=2.4.0
+    - pybind11 >=2.8.0
+  run:
+    - python
+    - pyyaml
+    - mlir {{ version }}
+    # we need to do this manually because clang_bootstrap has no run-export
+    - libcxx >={{ version }}    # [osx]
+
+test:
+  imports:
+    - mlir
+    - mlir.ir
+  commands:
+    - test -f "$SP_DIR/mlir/ir.py"                               # [unix]
+    - test -f "$SP_DIR/mlir/execution_engine.py"                 # [unix]
+    - if not exist "%SP_DIR%"\\mlir\\ir.py exit 1                # [win]
+    - if not exist "%SP_DIR%"\\mlir\\execution_engine.py exit 1  # [win]
+
+about:
+  home: https://mlir.llvm.org/docs/Bindings/Python/
+  license: Apache-2.0 WITH LLVM-exception
+  license_file: mlir/LICENSE.TXT
+  license_family: Apache
+  summary: Python Bindings for MLIR
+
+extra:
+  recipe-maintainers:
+    - jim22k
+    - conda-forge/mlir
