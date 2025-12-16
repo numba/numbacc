@@ -14,5 +14,5 @@ if [ -d "$3" ]; then
     fi
 else
     echo "Cloning repository to $3 with branch $2..."
-    git clone $1 --branch="$2" --depth=1 "$3"
+    git clone $1 --revision="$2" --depth=1 "$3"
 fi
