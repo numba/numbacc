@@ -1,0 +1,54 @@
+name: nbcc_ci
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/nbcc_ci.yml
+      - nbcc/*
+  workflow_dispatch:
+
+# Add concurrency control
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+# env:
+#   CONDA_CHANNEL_NUMBA: numba/label/dev
+
+jobs:
+  linux-64-build-conda:
+    name: linux-64-build-conda (py 3.12)
+    runs-on: ubuntu-latest
+    env:
+      EXTRA_CHANNELS: ''
+    defaults:
+      run:
+        shell: bash -elx {0}
+    strategy:
+      fail-fast: false
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f # v3.2.0
+        with:
+          auto-update-conda: false
+          activate-environment: dev
+          environment-file: conda-project.dev.yml
+
+      - name: Install conda-project
+        run: conda install conda-project
+
+      - name: Build
+        run: |
+          make setup-workspace
+          make build
+
+      - name: Test
+        run: |          
+            conda activate ./envs/dev
+            pytest ./nbcc
