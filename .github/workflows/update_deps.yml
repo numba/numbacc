@@ -1,0 +1,121 @@
+name: update spy
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  pull_request:
+    paths:
+      - .github/workflows/update_deps.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-update:
+    runs-on: ubuntu-latest
+    outputs:
+      needs_update: ${{ steps.check.outputs.needs_update }}
+      latest_sha: ${{ steps.check.outputs.latest_sha }}
+      current_sha: ${{ steps.check.outputs.current_sha }}
+      branch_name: ${{ steps.check.outputs.branch_name }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for updates
+        id: check
+        run: |
+          LATEST=$(git ls-remote https://github.com/spylang/spy refs/heads/main | cut -f1)
+          CURRENT=$(grep -oE 'spylang/spy [a-f0-9]{40}' Makefile | grep -oE '[a-f0-9]{40}')
+          echo "latest_sha=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "current_sha=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "branch_name=deps/update-spy" >> "$GITHUB_OUTPUT"
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_update=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push update branch
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          BRANCH="${{ steps.check.outputs.branch_name }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -b "$BRANCH" 2>/dev/null || git checkout "$BRANCH"
+          git reset --hard origin/main
+          sed -i "s|spylang/spy [a-f0-9]\{40\}|spylang/spy ${{ steps.check.outputs.latest_sha }}|" Makefile
+          git add Makefile
+          git commit -m "deps: update spy to ${{ steps.check.outputs.latest_sha }}"
+          git push --force-with-lease origin "$BRANCH"
+
+  build-test:
+    needs: check-update
+    if: needs.check-update.outputs.needs_update == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -elx {0}
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-update.outputs.branch_name }}
+          fetch-depth: 0
+
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: false
+
+      - name: Setup environment
+        run: |
+          conda install -y conda-project
+          conda project prepare -n dev
+          make setup-workspace
+          conda project run build
+
+      - name: Test
+        run: |
+          conda activate ./envs/dev
+          pytest ./nbcc
+
+  create-pr:
+    needs: [check-update, build-test]
+    if: needs.check-update.outputs.needs_update == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ needs.check-update.outputs.branch_name }}"
+          LATEST="${{ needs.check-update.outputs.latest_sha }}"
+          CURRENT="${{ needs.check-update.outputs.current_sha }}"
+
+          if gh pr list --head "$BRANCH" --json number --jq '.[0].number' | grep -q .; then
+            echo "PR already exists"
+            exit 0
+          fi
+
+          COMMIT_MSG=$(curl -s "https://api.github.com/repos/spylang/spy/commits/${LATEST}" | jq -r '.commit.message' | head -1)
+
+          gh pr create \
+            --title "deps: update spy to ${LATEST:0:8}" \
+            --body "## Automated SPy Dependency Update
+                    Updates \`spy\` from \`${CURRENT:0:8}\` to \`${LATEST:0:8}\`" \
+            --head "$BRANCH"
