@@ -3,92 +3,124 @@ from sealir.eqsat.rvsdg_extract_details import EGraphToRVSDG as _EGraphToRVSDG
 from ..frontend import grammar as sg
 
 
+def emit_node(fn):
+    def wrapper(self, *args, children, grm, **kwargs):
+        return grm.write(fn(**children))
+
+    return wrapper
+
+
+def match_type(typename: str, op_expect: str):
+    def condition(self, key, children, grm, **kwargs):
+        nodes = self.gdct["nodes"]
+        node = nodes[key]
+        eclass = node["eclass"]
+        op = node["op"]
+        node_type = self._parse_type(self.gdct["class_data"][eclass]["type"])
+        return (
+            node_type.prefix == "nbcc.egraph.rules"
+            and node_type.name == typename
+            and op == op_expect
+        )
+
+    return condition
+
+
 class ExtendEGraphToRVSDG(_EGraphToRVSDG):
     grammar = sg.Grammar
 
-    def handle_Term(self, op: str, children: dict | list, grm: sg.Grammar):
-        match op, children:
-            case "Op_i32_add", {"lhs": lhs, "rhs": rhs}:
-                return grm.write(
-                    sg.BuiltinOp(opname="i32_add", args=(lhs, rhs))
-                )
-            case "Op_i32_sub", {"lhs": lhs, "rhs": rhs}:
-                return grm.write(
-                    sg.BuiltinOp(opname="i32_sub", args=(lhs, rhs))
-                )
-            case "Op_i32_gt", {"lhs": lhs, "rhs": rhs}:
-                return grm.write(
-                    sg.BuiltinOp(opname="i32_gt", args=(lhs, rhs))
-                )
-            case "Op_i32_lt", {"lhs": lhs, "rhs": rhs}:
-                return grm.write(
-                    sg.BuiltinOp(opname="i32_lt", args=(lhs, rhs))
-                )
-            case "Op_i32_not", {"operand": operand}:
-                return grm.write(
-                    sg.BuiltinOp(opname="i32_not", args=(operand,))
-                )
-            case "Builtin_print_i32", {"io": io, "arg": arg}:
-                return grm.write(
-                    sg.BuiltinOp(opname="print_i32", args=(io, arg))
-                )
-            case "Builtin_print_str", {"io": io, "arg": arg}:
-                return grm.write(
-                    sg.BuiltinOp(opname="print_str", args=(io, arg))
-                )
-            case "Builtin_struct__make__", {"args": args}:
-                return grm.write(
-                    sg.BuiltinOp(opname="struct_make", args=tuple(args))
-                )
-            case "Builtin_struct__get_field__", {"struct": struct, "pos": pos}:
-                return grm.write(
-                    sg.BuiltinOp(opname="struct_get", args=(struct, pos))
-                )
-            case "CallFQN", {"fqn": fqn, "io": io, "args": args}:
-                return grm.write(sg.CallFQN(fqn=fqn, io=io, args=args))
-            case "CalleeFQN", {"fullname": str(fullname)}:
-                return grm.write(sg.FQN(fullname))
-            case "FQN.function", {"fullname": str(fullname)}:
-                fqn = grm.write(sg.FQN(fullname))
-                return fqn
+    @_EGraphToRVSDG._dispatch_term.extend
+    def _dispatch_term(disp):
 
-            case _:
-                # Use parent's implementation for other terms.
-                return super().handle_Term(op, children, grm)
+        def op_matches(op_expect):
+            def f(*args, op, **kwargs):
+                return op == op_expect
 
-    def handle_Metadata(
-        self, key: str, op: str, children: dict | list, grm: sg.Grammar
-    ):
-        match op, children:
-            case "Metadata.typeinfo", {
-                "value": value,
-                "type_expr": type_expr,
-            }:
-                return grm.write(sg.TypeInfo(value=value, type_expr=type_expr))
-            case "Metadata.irtag", {
-                "value": value,
-                "tag": tag,
-                "data": data,
-            }:
-                return grm.write(sg.IRTag(value=value, tag=tag, data=data))
-        raise NotImplementedError(key, op, children)
+            return f
 
-    def handle_TypeExpr(
-        self, key: str, op: str, children: dict | list, grm: sg.Grammar
-    ):
-        match op, children:
-            case "TypeExpr.simple", {"name": str(name)}:
-                return grm.write(sg.TypeExpr(name=name, args=()))
-            case "TypeExpr.function", {"args": args}:
-                return grm.write(
-                    sg.TypeExpr(name=".function", args=args.children)
-                )
-        raise NotImplementedError(op, children)
+        @disp.case(op_matches("Op_i32_add"))
+        @emit_node
+        def _(lhs, rhs):
+            return sg.BuiltinOp(opname="i32_add", args=(lhs, rhs))
 
-    def handle_IRTagData(
-        self, key: str, op: str, children: dict | list, grm: sg.Grammar
-    ):
-        match op, children:
-            case "IRTagData", {"key": str(key), "value": str(value)}:
-                return grm.write(sg.IRTagData(key=key, value=value))
-        raise NotImplementedError(op, children)
+        @disp.case(op_matches("Op_i32_sub"))
+        @emit_node
+        def _(lhs, rhs):
+            return sg.BuiltinOp(opname="i32_sub", args=(lhs, rhs))
+
+        @disp.case(op_matches("Op_i32_gt"))
+        @emit_node
+        def _(lhs, rhs):
+            return sg.BuiltinOp(opname="i32_gt", args=(lhs, rhs))
+
+        @disp.case(op_matches("Op_i32_lt"))
+        @emit_node
+        def _(lhs, rhs):
+            return sg.BuiltinOp(opname="i32_lt", args=(lhs, rhs))
+
+        @disp.case(op_matches("Op_i32_not"))
+        @emit_node
+        def _(operand):
+            return sg.BuiltinOp(opname="i32_not", args=(operand,))
+
+        @disp.case(op_matches("Builtin_print_i32"))
+        @emit_node
+        def _(io, arg):
+            return sg.BuiltinOp(opname="print_i32", args=(io, arg))
+
+        @disp.case(op_matches("Builtin_print_str"))
+        @emit_node
+        def _(io, arg):
+            return sg.BuiltinOp(opname="print_str", args=(io, arg))
+
+        @disp.case(op_matches("Builtin_struct__make__"))
+        @emit_node
+        def _(args):
+            return sg.BuiltinOp(opname="struct_make", args=tuple(args))
+
+        @disp.case(op_matches("Builtin_struct__get_field__"))
+        @emit_node
+        def _(struct, pos):
+            return sg.BuiltinOp(opname="struct_get", args=(struct, pos))
+
+        @disp.case(op_matches("CallFQN"))
+        @emit_node
+        def _(fqn, io, args):
+            return sg.CallFQN(fqn=fqn, io=io, args=args)
+
+        @disp.case(op_matches("CalleeFQN"))
+        @emit_node
+        def _(fullname):
+            return sg.FQN(fullname)
+
+        @disp.case(op_matches("FQN.function"))
+        @emit_node
+        def _(fullname):
+            return sg.FQN(fullname)
+
+    @_EGraphToRVSDG._dispatch_function.extend
+    def _dispatch_function(disp):
+        @disp.case(match_type("TypeExpr", "TypeExpr.simple"))
+        @emit_node
+        def _(name: str):
+            return sg.TypeExpr(name=name, args=())
+
+        @disp.case(match_type("TypeExpr", "TypeExpr.function"))
+        @emit_node
+        def _(args):
+            return sg.TypeExpr(name=".function", args=args.children)
+
+        @disp.case(match_type("Metadata", "Metadata.typeinfo"))
+        @emit_node
+        def _(value, type_expr):
+            return sg.TypeInfo(value=value, type_expr=type_expr)
+
+        @disp.case(match_type("Metadata", "Metadata.irtag"))
+        @emit_node
+        def _(value, tag, data):
+            return sg.IRTag(value=value, tag=tag, data=data)
+
+        @disp.case(match_type("IRTagData", "IRTagData"))
+        @emit_node
+        def _(key: str, value: str):
+            return sg.IRTagData(key=key, value=value)
