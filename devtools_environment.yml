@@ -1,8 +1,6 @@
 channels:
   - defaults
 dependencies:
-  - graphviz
-  - python-graphviz
   - black >=25
   - make
   - conda-forge::pygal  # for pytest-benchmark to render SVG histograms
@@ -11,5 +9,5 @@ dependencies:
   - pip
   - pip:
     - numba-scfg 
-    - egglog ==10
+    - egglog ==12
     - pytest-benchmark >=5.2.0
