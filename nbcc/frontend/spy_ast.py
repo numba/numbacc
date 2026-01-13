@@ -49,7 +49,9 @@ def convert_to_node(
     fields_to_ignore: Any = (),
 ) -> Node:
     dumper = Dumper(fields_to_ignore=fields_to_ignore, vm=vm)
-    return dumper.dump_anything(node)
+    res = dumper.dump_anything(node)
+    assert isinstance(res, Node)
+    return res
 
 
 class Dumper:
@@ -67,7 +69,7 @@ class Dumper:
         self.fields_to_ignore = tuple(fields_to_ignore)
         self.vm = vm
 
-    def dump_anything(self, obj: Any) -> Node:
+    def dump_anything(self, obj: Any) -> Node | list[Node]:
         if isinstance(obj, spy.ast.Node):
             return self.dump_spy_node(obj)
         elif isinstance(obj, py_ast.AST):
@@ -107,7 +109,7 @@ class Dumper:
         )
 
     def _dump_node(self, node: Any, name: str, fields: list[str]) -> Node:
-        attrdict = {}
+        attrdict: dict[str, list[Node] | Node | str] = {}
         # Add color information from VM if available
         if self.vm and self.vm.expr_color_map:
             color: Optional[Color] = self.vm.expr_color_map.get(node, None)
@@ -121,6 +123,11 @@ class Dumper:
 
         return Node(name, attrdict)
 
-    def dump_list(self, lst: list[Any]) -> Node:
-        items = [self.dump_anything(item) for item in lst]
+    def dump_list(self, lst: list[Any]) -> list[Node]:
+        items = [_assume_Node(self.dump_anything(item)) for item in lst]
         return items
+
+
+def _assume_Node(x) -> Node:
+    assert isinstance(x, Node)
+    return x

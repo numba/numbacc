@@ -5,7 +5,7 @@ import ctypes
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Any, Callable, Coroutine, Sequence, cast
 from abc import ABC, abstractmethod
 
 import mlir.dialects.arith as arith
@@ -20,6 +20,7 @@ from mlir.dialects import llvm
 from mlir.dialects.transform.interpreter import apply_named_sequence
 from mlir.ir import _GlobalDebug
 from sealir import ase
+from sealir.ase import SExpr
 from sealir.dispatchtable import DispatchTableBuilder, dispatchtable
 from sealir.rvsdg import grammar as rg
 from sealir.rvsdg import internal_prefix
@@ -63,7 +64,7 @@ class MDMap:
                     breakpoint()
                     TODO(f"Unknown MD: {md}: {type(md)}")
 
-    def lookup_irtag(self, val: ase.SExpr) -> list[sg.TypeInfo]:
+    def lookup_irtag(self, val: ase.SExpr) -> list[sg.IRTag]:
         return [x for x in self.mdmap[val] if isinstance(x, sg.IRTag)]
 
     def lookup_typeinfo(self, val: ase.SExpr) -> list[sg.TypeInfo]:
@@ -266,7 +267,7 @@ class Backend(BackendInterface):
                 "mlir_tensor_lib::make_tensor_type[mlir::type::f64]::TensorType"
             )
         )
-        def _handle_TensorType(self, fqn: FQN, args: tuple):
+        def _handle_TensorType_mlir_lib(self, fqn: FQN, args: tuple):
             TODO(
                 "TODO: lower_type mlir_tensor_lib::make_tensor_type[f64]::TensorType "
             )
@@ -277,7 +278,7 @@ class Backend(BackendInterface):
                 "llm_tensor::make_tensor_type_2d[mlir::type::f64]::TensorType"
             )
         )
-        def _handle_TensorType(self, fqn: FQN, args: tuple):
+        def _handle_TensorType_llm(self, fqn: FQN, args: tuple):
             TODO(
                 "TODO: lower_type mlir_tensor_lib::make_tensor_type[f64]::TensorType "
             )
@@ -597,7 +598,7 @@ class Backend(BackendInterface):
         if not mds:
             return None
         [ty] = mds
-        return self.lower_type(ty.type_expr)
+        return self.lower_type(cast(sg.TypeExpr, ty.type_expr))
 
     def make_module(self, module_name: str) -> ir.Module:
         with self.context:
@@ -762,13 +763,13 @@ class Lowering:
         be: BackendInterface,
         module: ir.Module,
         mdmap: MDMap,
-        func_map: dict[str, ase.SExpr],
+        func_map: dict[str, rg.Func],
     ):
         self.be = be
         self.module = module
         self.mdmap = mdmap
         self.func_map = func_map
-        self._declared = {}
+        self._declared: dict[str, func.FuncOp] = {}
 
     def get_return_types(self, root) -> list[ir.Type]:
         [retval] = [
@@ -784,11 +785,14 @@ class Lowering:
         return outs
 
     def irtags(self, root: rg.Func) -> dict:
-        out = {}
-        if irtags := self.mdmap.lookup_irtag(root.body):
+        out: dict[str, list[tuple[str, str]]] = {}
+        if irtags := self.mdmap.lookup_irtag(cast(ase.SExpr, root.body)):
             for irtag in irtags:
                 bin = out.setdefault(irtag.tag, [])
-                for irtagdata in irtag.data[0].children:
+                for irtagdata in cast(
+                    list[sg.IRTagData],
+                    cast(rg.GenericList, irtag.data[0]).children,
+                ):
                     bin.append((irtagdata.key, irtagdata.value))
         return out
 
@@ -808,8 +812,11 @@ class Lowering:
         self.module_body = module_body = ir.InsertionPoint(module.body)
         # Convert SealIR types to MLIR types.
 
+        assert isinstance(root.args, rg.Args)
+        arguments = root.args.arguments
+
         input_types = tuple(
-            [self.be.lower_type(x) for x in root.args.arguments]
+            [self.be.lower_type(x) for x in arguments]
         )
         output_types = self.get_return_types(root)
 
@@ -862,8 +869,14 @@ class Lowering:
 
         with context, loc, function_entry:
             memo = ase.traverse(
-                root,
-                self.lower_expr,
+                cast(ase.SExpr, root),
+                cast(
+                    Callable[
+                        [ase.SExpr, ase.TraverseState],
+                        "Coroutine[ase.SExpr, Any, Any]",
+                    ],
+                    self.lower_expr,
+                ),
                 LowerStates(
                     push=push,
                     get_region_args=get_region_args,
@@ -890,22 +903,25 @@ class Lowering:
         Implement the core expression lowering logic for various RVSDG
         constructs including functions, regions, control flow, and operations.
         """
-
-        module = self.module
-        context = self.be.context
         match expr:
-            case rg.Func(args=args, body=body, fname=fqn):
+            case rg.Func(args=args, body=body, fname=fqn):  # type: ignore[misc]
                 TODO("XXX: no way to get return type")
                 # [fqn_ti] = self.mdmap.lookup_typeinfo_by_fqn(fqn)
                 # resty = fqn_ti.type_expr.args[0]
                 # print(fqn)
                 # print(resty.name)
+                func_args = cast(rg.Args, args)
                 names = {
-                    argspec.name: state.function_block.arguments[i]
-                    for i, argspec in enumerate(args.arguments)
+                    cast(
+                        rg.ArgSpec, argspec
+                    ).name: state.function_block.arguments[i]
+                    for i, argspec in enumerate(func_args.arguments)
                 }
+                # Cast body to known type from rg.Func pattern match
+                func_body = cast(rg.RegionEnd, body)
+                region_begin = cast(rg.RegionBegin, func_body.begin)
                 argvalues = []
-                for k in body.begin.inports:
+                for k in region_begin.inports:
                     if k == internal_prefix("io"):
                         v = arith.constant(self.be.io_type, 0)
                     else:
@@ -913,9 +929,11 @@ class Lowering:
                     argvalues.append(v)
 
                 with state.push(argvalues):
-                    outs = yield body
+                    outs = yield func_body
 
-                portnames = [p.name for p in body.ports]
+                # Handle SExpr - check for ports attribute or use _args with name filtering
+                func_body_ports = func_body.ports
+                portnames = [cast(rg.Port, p).name for p in func_body_ports]
 
                 if self.get_return_types(expr) == []:
                     func.ReturnOp([])
@@ -930,8 +948,10 @@ class Lowering:
                     func.ReturnOp([self._cast_return_value(retval)])
 
             case rg.RegionBegin(inports=ins):
+                # Convert ins from tuple to list
+                inports: list[str] = list(ins)
                 portvalues = []
-                for i, k in enumerate(ins):
+                for i, k in enumerate(inports):
                     pv = state.get_region_args()[i]
                     portvalues.append(pv)
                 return tuple(portvalues)
@@ -941,8 +961,10 @@ class Lowering:
                 ports=ports,
             ):
                 yield begin
+                # Convert ports from tuple to list
+                region_ports = [cast(rg.Port, p) for p in ports]
                 portvalues = []
-                for p in ports:
+                for p in region_ports:
                     pv = yield p.value
                     portvalues.append(pv)
                 return tuple(portvalues)
@@ -951,7 +973,7 @@ class Lowering:
                 return state.function_block.arguments[idx]
 
             case rg.Unpack(val=source, idx=int(idx)):
-                ports = yield source
+                ports = yield cast(tuple, source)
                 return ports[idx]
 
             case rg.DbgValue(value=value):
@@ -1008,10 +1030,12 @@ class Lowering:
                 return str_addr
 
             # NBCC specific - BuiltinOp cases handled by dispatch table
-            case sg.BuiltinOp(op_name, args):
+            case sg.BuiltinOp(opname=op_name, args=args):
+                # Cast args to known tuple type from pattern match
+                builtin_args: tuple[SExpr, ...] = args
                 # Handle special case for struct_get which has mixed arg types
                 if op_name == "struct_get":
-                    struct, pos = args
+                    struct, pos = builtin_args
                     struct_value = yield struct
                     return self.be.handle_builtin_op(
                         op_name, [struct_value, pos], state, self
@@ -1019,17 +1043,17 @@ class Lowering:
                 else:
                     # Process arguments first, similar to MLIR ops
                     lowered_args = []
-                    for arg in args:
+                    for arg in builtin_args:
                         lowered_args.append((yield arg))
                     return self.be.handle_builtin_op(
                         op_name, lowered_args, state, self
                     )
 
             case rg.PyBool(val):
-                return arith.constant(self.boolean, val)
+                return arith.constant(self.be.boolean, val)
 
             case rg.PyInt(val):
-                return arith.constant(self.i64, val)
+                return arith.constant(self.be.i64, val)
 
             case rg.IfElse(
                 cond=cond, body=body, orelse=orelse, operands=operands
@@ -1042,6 +1066,8 @@ class Lowering:
                 result_tys: list[ir.Type] = []
 
                 # determine result types
+                assert isinstance(body, rg.RegionEnd)
+                assert isinstance(orelse, rg.RegionEnd)
                 for left_port, right_port in zip(
                     body.ports, orelse.ports, strict=True
                 ):
@@ -1074,20 +1100,23 @@ class Lowering:
                 return if_op.results
 
             case rg.Loop(body=rg.RegionEnd() as body, operands=operands):
+                # Cast operands to expected type from pattern match
+                loop_operands = cast("list[SExpr]", operands)
                 # process operands
-                operand_vals = []
-                for op in operands:
-                    operand_vals.append((yield op))
+                loop_operand_vals: list[ir.Value] = []
+                for op in loop_operands:
+                    loop_operand_vals.append(cast(ir.Value, (yield op)))
 
-                result_tys = []
-                for op in operand_vals:
-                    result_tys.append(op.type)
+                loop_result_tys: list[ir.Type] = []
+                for op in loop_operand_vals:
+                    loop_result_tys.append(cast(ir.Value, op).type)
 
                 while_op = scf.WhileOp(
-                    results_=result_tys, inits=[op for op in operand_vals]
+                    results_=loop_result_tys,
+                    inits=[op for op in loop_operand_vals],
                 )
-                before_block = while_op.before.blocks.append(*result_tys)
-                after_block = while_op.after.blocks.append(*result_tys)
+                before_block = while_op.before.blocks.append(*loop_result_tys)
+                after_block = while_op.after.blocks.append(*loop_result_tys)
                 new_ops = before_block.arguments
 
                 # Before Region
@@ -1123,11 +1152,16 @@ class Lowering:
 
                 [callee_ti] = mdmap.lookup_typeinfo(callee_fqn)
 
-                resty = self.be.lower_type(callee_ti.type_expr.args[0])
+                type_expr: sg.TypeExpr = cast(sg.TypeExpr, callee_ti.type_expr)
+                resty = self.be.lower_type(
+                    cast(sg.TypeExpr, type_expr.args[0])
+                )
                 argtys = []
                 for arg in args_vals:
                     [ti] = mdmap.lookup_typeinfo(arg)
-                    argtys.append(self.be.lower_type(ti.type_expr))
+                    argtys.append(
+                        self.be.lower_type(cast(sg.TypeExpr, ti.type_expr))
+                    )
 
                 lowered_args = []
                 for arg in args_vals:
@@ -1135,23 +1169,24 @@ class Lowering:
 
                 c_name = FQN(callee_fqn.fullname).c_name
 
-                fqn = FQN(callee_fqn.fullname)
+                callee_fqn_obj: FQN = FQN(callee_fqn.fullname)
 
-                if fqn.namespace.fullname == "mlir::op":
+                if callee_fqn_obj.namespace.fullname == "mlir::op":
                     TODO("XXX: hardcode support of MLIR::OP ")
 
                     res = self.be.handle_mlir_op(
-                        fqn.symbol_name,
+                        callee_fqn_obj.symbol_name,
                         resty,
                         lowered_args,
                     )
-                    if op := getattr(res, "owner", None):
-                        assert op.verify()
+                    owner = getattr(res, "owner", None)
+                    if owner is not None:
+                        assert owner.verify()
                     return [io_val, res]
                     # self.declare_builtins(c_name, argtys, [resty])
-                elif fqn.namespace.fullname == "mlir::asm":
+                elif callee_fqn_obj.namespace.fullname == "mlir::asm":
                     res = self._handle_mlir_asm(
-                        fqn.symbol_name,
+                        callee_fqn_obj.symbol_name,
                         resty,
                         lowered_args,
                     )

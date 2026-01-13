@@ -1,3 +1,4 @@
+# mypy: disable-error-code="empty-body"
 from __future__ import annotations
 
 import warnings
@@ -76,81 +77,99 @@ def egraph_convert_metadata(mdlist: list[SExpr], memo) -> egglog.Vec[Metadata]:
 
 class TypeExpr(egglog.Expr):
     @classmethod
-    def simple(cls, name: egglog.StringLike) -> TypeExpr: ...
+    def simple(cls, name: egglog.StringLike) -> TypeExpr:
+        ...
 
     # @classmethod
     # def compound(cls, name: egglog.StringLike, *args: TypeExpr) -> TypeExpr:
     #     ...
 
     @classmethod
-    def function(cls, args: egglog.Vec[TypeExpr]) -> TypeExpr: ...
+    def function(cls, args: egglog.Vec[TypeExpr]) -> TypeExpr:
+        ...
 
 
 class IRTagData(egglog.Expr):
-    def __init__(self, key: egglog.StringLike, value: egglog.StringLike): ...
+    def __init__(self, key: egglog.StringLike, value: egglog.StringLike):
+        ...
 
 
 class Metadata(egglog.Expr):
     @classmethod
-    def typeinfo(cls, value: Term, type_expr: TypeExpr) -> Metadata: ...
+    def typeinfo(cls, value: Term, type_expr: TypeExpr) -> Metadata:
+        ...
 
     @classmethod
     def irtag(
         cls, value: Term, tag: egglog.StringLike, data: egglog.Vec[IRTagData]
-    ) -> Metadata: ...
+    ) -> Metadata:
+        ...
 
 
 @egglog.function
-def Md_type_info(value: Term, typename: egglog.StringLike) -> Term: ...
+def Md_type_info(value: Term, typename: egglog.StringLike) -> Term:
+    ...
 
 
 @egglog.function
-def Op_i32_add(lhs: Term, rhs: Term) -> Term: ...
+def Op_i32_add(lhs: Term, rhs: Term) -> Term:
+    ...
 
 
 @egglog.function
-def Op_i32_sub(lhs: Term, rhs: Term) -> Term: ...
+def Op_i32_sub(lhs: Term, rhs: Term) -> Term:
+    ...
 
 
 @egglog.function
-def Op_i32_lt(lhs: Term, rhs: Term) -> Term: ...
+def Op_i32_lt(lhs: Term, rhs: Term) -> Term:
+    ...
 
 
 @egglog.function
-def Op_i32_gt(lhs: Term, rhs: Term) -> Term: ...
+def Op_i32_gt(lhs: Term, rhs: Term) -> Term:
+    ...
 
 
 @egglog.function
-def Op_i32_not(operand: Term) -> Term: ...
+def Op_i32_not(operand: Term) -> Term:
+    ...
 
 
 @egglog.function
-def Builtin_print_i32(io: Term, arg: Term) -> Term: ...
+def Builtin_print_i32(io: Term, arg: Term) -> Term:
+    ...
 
 
 @egglog.function
-def Builtin_print_str(io: Term, arg: Term) -> Term: ...
+def Builtin_print_str(io: Term, arg: Term) -> Term:
+    ...
 
 
 @egglog.function
-def Builtin_struct__make__(args: TermList) -> Term: ...
+def Builtin_struct__make__(args: TermList) -> Term:
+    ...
 
 
 @egglog.function
-def Builtin_struct__get_field__(struct: Term, pos: egglog.i64) -> Term: ...
+def Builtin_struct__get_field__(struct: Term, pos: egglog.i64) -> Term:
+    ...
 
 
 class FQN(egglog.Expr):
     @classmethod
-    def function(cls, fullname: egglog.StringLike) -> Term: ...
+    def function(cls, fullname: egglog.StringLike) -> Term:
+        ...
 
 
 @egglog.function
-def CallFQN(fqn: Term, io: Term, args: TermList) -> Term: ...
+def CallFQN(fqn: Term, io: Term, args: TermList) -> Term:
+    ...
 
 
 @egglog.function
-def Load_FQN(fqn) -> Term: ...
+def Load_FQN(fqn) -> Term:
+    ...
 
 
 @egglog.ruleset
@@ -265,7 +284,7 @@ def create_ruleset_struct__get_field__(w_obj, field_pos: int):
         ).then(
             union(call.getPort(0)).with_(io),
             union(call.getPort(1)).with_(
-                Builtin_struct__get_field__(struct, field_pos)
+                Builtin_struct__get_field__(struct, i64(field_pos))
             ),
         )
 

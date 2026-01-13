@@ -13,7 +13,7 @@ def _load_transform_file(filename: str) -> str:
 
 
 # Cache for lazy-loaded attributes
-_cached_transforms = {}
+_cached_transforms: dict[str, str] = {}
 
 
 def __getattr__(name: str) -> str:

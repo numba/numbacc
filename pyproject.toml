@@ -22,3 +22,17 @@ include = ["nbcc", "nbcc.*"]
 [tool.black]
 line-length = 79
 target-version = ['py312']
+
+
+[tool.mypy]
+mypy_path = ["deps/sealir", "deps/spy"]
+python_version = "3.12"
+
+[[tool.mypy.overrides]]
+module = ["mlir.*", "sealir.*", "spy.*"]
+ignore_errors = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["numba_scfg.*"]
+ignore_missing_imports = true

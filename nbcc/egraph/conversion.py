@@ -27,9 +27,12 @@ def match_type(typename: str, op_expect: str):
 
 
 class ExtendEGraphToRVSDG(_EGraphToRVSDG):
-    grammar = sg.Grammar
+    # Override base class grammar type expectation - nbcc.frontend.grammar.Grammar
+    # is compatible with sealir.rvsdg.grammar.Grammar for dispatch purposes
+    grammar: type[sg.Grammar] = sg.Grammar  # type: ignore[assignment]
 
     @_EGraphToRVSDG._dispatch_term.extend
+    @staticmethod
     def _dispatch_term(disp):
 
         def op_matches(op_expect):
@@ -99,6 +102,7 @@ class ExtendEGraphToRVSDG(_EGraphToRVSDG):
             return sg.FQN(fullname)
 
     @_EGraphToRVSDG._dispatch_function.extend
+    @staticmethod
     def _dispatch_function(disp):
         @disp.case(match_type("TypeExpr", "TypeExpr.simple"))
         @emit_node
