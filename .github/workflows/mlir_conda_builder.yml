@@ -68,6 +68,13 @@ jobs:
           CONDA_CHANNEL_DIR="conda_channel_dir"
           mkdir $CONDA_CHANNEL_DIR
           conda build --debug -c "${MLIR_CHANNEL}" -c defaults --python=${{ matrix.python-version }} conda-recipes/mlir-python-bindings --output-folder="${CONDA_CHANNEL_DIR}" --no-test
+      
+      - name: Install and test conda package
+        run: |
+          CONDA_CHANNEL_DIR="conda_channel_dir"
+          conda install --use-local -c "file://${{ github.workspace }}/${CONDA_CHANNEL_DIR}" mlir-python-bindings
+          python -c "import mlir; print(mlir.ir.StringAttr)"
+          python conda-recipes/mlir-python-bindings/test.py
 
       - name: Upload mlir-python-bindings conda package
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
