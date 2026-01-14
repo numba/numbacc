@@ -815,9 +815,7 @@ class Lowering:
         assert isinstance(root.args, rg.Args)
         arguments = root.args.arguments
 
-        input_types = tuple(
-            [self.be.lower_type(x) for x in arguments]
-        )
+        input_types = tuple([self.be.lower_type(x) for x in arguments])
         output_types = self.get_return_types(root)
 
         with context, loc, module_body:

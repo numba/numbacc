@@ -181,8 +181,10 @@ class ConversionContext:
     local_types: dict[str, W_Type]
     global_ns: dict[FQN, dict[str, W_Type]]
     scope_stack: list = field(init=False, default_factory=list)
-    scope_map: dict[Any, Scope] = field(  # Keys are wrapped NamedSExpr[Grammar, RegionBegin]
-        init=False, default_factory=dict
+    scope_map: dict[Any, Scope] = (
+        field(  # Keys are wrapped NamedSExpr[Grammar, RegionBegin]
+            init=False, default_factory=dict
+        )
     )
 
     @property
@@ -251,12 +253,16 @@ class ConversionContext:
 
         self.scope_stack.pop()
 
-    def initialize_scope(self, rb):  # rb is wrapped NamedSExpr[Grammar, RegionBegin]
+    def initialize_scope(
+        self, rb
+    ):  # rb is wrapped NamedSExpr[Grammar, RegionBegin]
         write = self.grm.write
         for i, k in enumerate(rb.inports):
             self.store_local(k, write(rg.Unpack(val=rb, idx=i)))
 
-    def compute_updated_vars(self, rb) -> set[str]:  # rb is wrapped NamedSExpr[Grammar, RegionBegin]
+    def compute_updated_vars(
+        self, rb
+    ) -> set[str]:  # rb is wrapped NamedSExpr[Grammar, RegionBegin]
         return set(self.scope_map[rb].local_vars.keys())
 
     def close_region(
@@ -308,9 +314,7 @@ class ConvertToSExpr:
         self._args: list[ase.SExpr] = []
         self._memo_fntypes: dict[Any, Any] = {}
 
-    def insert_typeinfo(
-        self, value: ase.SExpr, type_expr: ase.SExpr
-    ) -> None:
+    def insert_typeinfo(self, value: ase.SExpr, type_expr: ase.SExpr) -> None:
         self._metadata.append(
             self._context.grm.write(
                 sg.TypeInfo(value=value, type_expr=type_expr)
@@ -681,7 +685,9 @@ class ConvertToSExpr:
                 return res
             case Node("Constant", value=int(ival)):
                 cval = grm.write(rg.PyInt(ival))
-                i32_wrapped = grm.write(sg.TypeExpr(name="builtins::i32", args=()))
+                i32_wrapped = grm.write(
+                    sg.TypeExpr(name="builtins::i32", args=())
+                )
                 self.insert_typeinfo(cval, i32_wrapped)
                 return cval
 

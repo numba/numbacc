@@ -84,7 +84,7 @@ def w_MLIR_asm(
 
     # Ensure all argument types have fqn attribute
     for at in argtypes_w:
-        assert hasattr(at, 'fqn'), f"Argument type {at} missing fqn attribute"
+        assert hasattr(at, "fqn"), f"Argument type {at} missing fqn attribute"
 
     # Cast to W_Type after assertion for type safety
     argtypes_typed = cast(list[W_Type], list(argtypes_w))

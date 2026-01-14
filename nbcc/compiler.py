@@ -200,7 +200,9 @@ def make_shared(module: ir.Module, out_path: str):
         )
 
 
-def middle_end(tu: TranslationUnit) -> tuple[dict[str, rg.Func], list[TypeInfo | IRTag]]:
+def middle_end(
+    tu: TranslationUnit,
+) -> tuple[dict[str, rg.Func], list[TypeInfo | IRTag]]:
     func_nodes: dict[str, rg.Func] = {}
     mdlist: list[TypeInfo | IRTag] = []
 
@@ -228,7 +230,9 @@ def middle_end(tu: TranslationUnit) -> tuple[dict[str, rg.Func], list[TypeInfo |
 
         tape = fi.region._tape
         last = tape.last
-        converted_root: SExpr = extresult.convert(fi.region, ExtendEGraphToRVSDG)
+        converted_root: SExpr = extresult.convert(
+            fi.region, ExtendEGraphToRVSDG
+        )
 
         for node in converted_root._args:
             match node:
