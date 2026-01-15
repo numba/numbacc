@@ -5,6 +5,12 @@ on:
     paths:
       - .github/workflows/nbcc_ci.yml
       - nbcc/**
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/nbcc_ci.yml
+      - nbcc/**
   workflow_dispatch:
 
 # Add concurrency control
@@ -47,3 +53,9 @@ jobs:
         run: |          
           conda activate ./envs/dev
           pytest ./nbcc
+
+
+      - name: MyPy
+        run: |          
+          conda activate ./envs/dev
+          mypy ./nbcc

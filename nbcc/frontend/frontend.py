@@ -1,7 +1,7 @@
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 from pathlib import Path
 
 from numba_scfg.core.datastructures.basic_block import (
@@ -21,7 +21,7 @@ from sealir.rvsdg import format_rvsdg
 from sealir.rvsdg import grammar as rg
 from sealir.rvsdg import internal_prefix
 from spy.fqn import FQN
-from spy.vm.function import W_ASTFunc, W_BuiltinFunc, W_FuncType
+from spy.vm.function import W_ASTFunc, W_BuiltinFunc, W_FuncType, W_Func
 from spy.vm.struct import W_StructType
 from spy.vm.modules.types import W_Type, W_LiftedType
 from spy.vm.vm import SPyVM
@@ -156,8 +156,8 @@ def convert_to_sexpr(
     func_node: Node,
     scfg: SCFG,
     fn_type: W_FuncType,
-    local_types: dict[str, Any],
-    global_ns: dict[str, Any],
+    local_types: dict[str, W_Type],
+    global_ns: dict[FQN, dict[str, W_Type]],
     vm: SPyVM,
 ) -> tuple[SCFG, list]:
     with ase.Tape() as tape:
@@ -178,11 +178,13 @@ class Scope:
 @dataclass(frozen=True)
 class ConversionContext:
     grm: sg.Grammar
-    local_types: dict[str, Any]
-    global_ns: dict[FQN, Any]
+    local_types: dict[str, W_Type]
+    global_ns: dict[FQN, dict[str, W_Type]]
     scope_stack: list = field(init=False, default_factory=list)
-    scope_map: dict[rg.RegionBegin, Scope] = field(
-        init=False, default_factory=dict
+    scope_map: dict[Any, Scope] = (
+        field(  # Keys are wrapped NamedSExpr[Grammar, RegionBegin]
+            init=False, default_factory=dict
+        )
     )
 
     @property
@@ -223,6 +225,13 @@ class ConversionContext:
         for i, k in enumerate(vars):
             self.store_local(k, grm.write(rg.Unpack(val=expr, idx=i)))
 
+    # Unwrapping utilities for NamedSExpr -> Rule conversion
+    def unwrap_type_expr(self, wrapped_te) -> sg.TypeExpr:
+        """Unwrap NamedSExpr[Grammar, TypeExpr] to TypeExpr - still needed for emit_function_type"""
+        return sg.TypeExpr(name=wrapped_te.name, args=wrapped_te.args)
+
+    # Removed unused unwrapping utilities that are no longer needed after type annotation fixes
+
     @contextmanager
     def new_region(self, region_parameters: Sequence[str]):
 
@@ -244,28 +253,33 @@ class ConversionContext:
 
         self.scope_stack.pop()
 
-    def initialize_scope(self, rb: rg.RegionBegin):
+    def initialize_scope(
+        self, rb
+    ):  # rb is wrapped NamedSExpr[Grammar, RegionBegin]
         write = self.grm.write
         for i, k in enumerate(rb.inports):
             self.store_local(k, write(rg.Unpack(val=rb, idx=i)))
 
-    def compute_updated_vars(self, rb: rg.RegionBegin) -> set[str]:
+    def compute_updated_vars(
+        self, rb
+    ) -> set[str]:  # rb is wrapped NamedSExpr[Grammar, RegionBegin]
         return set(self.scope_map[rb].local_vars.keys())
 
     def close_region(
-        self, rb: rg.RegionBegin, expected_vars: set[str]
-    ) -> rg.RegionEnd:
+        self, rb, expected_vars: set[str]
+    ) -> ase.SExpr:  # rb is wrapped NamedSExpr[Grammar, RegionBegin]
         scope = self.scope_map[rb]
 
         write = self.grm.write
-        ports: list[rg.Port] = []
+        ports: list[ase.SExpr] = []
         for k in sorted(expected_vars):
+            v: ase.SExpr
             if k not in scope.local_vars:
                 v = write(rg.Undef(name=k))
             else:
                 v = scope.local_vars[k]
-            p = rg.Port(name=k, value=v)
-            ports.append(write(p))
+            p = write(rg.Port(name=k, value=v))
+            ports.append(p)
 
         return write(rg.RegionEnd(begin=rb, ports=tuple(ports)))
 
@@ -283,8 +297,8 @@ class ConvertToSExpr:
     def __init__(
         self,
         tape: ase.Tape,
-        local_types: dict[str, Any],
-        global_ns: dict[str, Any],
+        local_types: dict[str, W_Type],
+        global_ns: dict[FQN, dict[str, W_Type]],
         vm: SPyVM,
     ):
         self._tape = tape
@@ -293,16 +307,14 @@ class ConvertToSExpr:
             local_types=local_types,
             global_ns=global_ns,
         )
-        self._metadata = []
+        self._metadata: list[ase.SExpr] = []
         self._local_types = local_types
         self._global_ns = global_ns
         self._vm = vm
-        self._args = []
-        self._memo_fntypes = {}
+        self._args: list[ase.SExpr] = []
+        self._memo_fntypes: dict[Any, Any] = {}
 
-    def insert_typeinfo(
-        self, value: ase.SExpr, type_expr: sg.TypeExpr
-    ) -> None:
+    def insert_typeinfo(self, value: ase.SExpr, type_expr: ase.SExpr) -> None:
         self._metadata.append(
             self._context.grm.write(
                 sg.TypeInfo(value=value, type_expr=type_expr)
@@ -322,9 +334,13 @@ class ConvertToSExpr:
     def emit_function_type(
         self, resty: sg.TypeExpr, *args: sg.TypeExpr
     ) -> sg.TypeExpr:
-        return self._context.grm.write(
-            sg.TypeExpr(name=".function", args=(resty, *args))
+        # Convert TypeExpr args to SExprs first
+        resty_sexpr = self._context.grm.write(resty)
+        args_sexprs = tuple(self._context.grm.write(arg) for arg in args)
+        written_type = self._context.grm.write(
+            sg.TypeExpr(name=".function", args=(resty_sexpr, *args_sexprs))
         )
+        return self._context.unwrap_type_expr(written_type)
 
     def emit_type(self, ty: W_Type):
         if fqn := ty.fqn:
@@ -378,7 +394,7 @@ class ConvertToSExpr:
             typexpr = ctx.grm.write(sg.TypeExpr(name=fqn.fullname, args=()))
             argtypes.append(typexpr)
             self.insert_typeinfo(arg_sexpr, typexpr)
-        args = ctx.grm.write(rg.Args(arguments=tuple(argtypes)))
+        written_args = ctx.grm.write(rg.Args(arguments=tuple(argtypes)))
 
         retval = scope_map.local_vars[internal_prefix("ret")]
         ret_tyname = fn_type.w_restype.fqn.fullname
@@ -407,7 +423,7 @@ class ConvertToSExpr:
         return ctx.grm.write(
             rg.Func(
                 fname=func_node.fqn.fullname,
-                args=args,
+                args=written_args,
                 body=body,
             )
         )
@@ -443,13 +459,17 @@ class ConvertToSExpr:
             region_else = ctx.close_region(rb_else, updated_vars)
 
             # type metadata
+            assert isinstance(region_then, rg.RegionEnd)
+            assert isinstance(region_else, rg.RegionEnd)
             for region in (region_then, region_else):
-                for port in region.ports:
-                    if ty := self._local_types.get(port.name):
+                # Access ports from wrapped SExpr RegionEnd
+                region_ports = cast(list[rg.Port], region.ports)
+                for port_sexpr in region_ports:
+                    if ty := self._local_types.get(port_sexpr.name):
                         typexpr = ctx.grm.write(
                             sg.TypeExpr(name=ty.fqn.fullname, args=())
                         )
-                        self.insert_typeinfo(port.value, typexpr)
+                        self.insert_typeinfo(port_sexpr.value, typexpr)
 
             ifelse = ctx.grm.write(
                 rg.IfElse(
@@ -513,7 +533,7 @@ class ConvertToSExpr:
                         ctx.update_scope(
                             loop, sorted(updated_vars - {loopcondvar})
                         )
-                        return
+                        return None
                     else:
                         return self.handle_region(block.subregion)
                 else:
@@ -522,9 +542,9 @@ class ConvertToSExpr:
 
             case SpyBasicBlock():
                 if not block.body:
-                    return
+                    return None
                 assert len(block.body) > 0
-                last_expr: ase.Expr
+                last_expr: ase.SExpr
                 for stmt in block.body:
                     last_expr = self.emit_statement(stmt)
                 return last_expr
@@ -537,7 +557,7 @@ class ConvertToSExpr:
                         case _:
                             raise ValueError(type(v))
                     ctx.store_local(k, const)
-                    return
+                    return None
 
             case SyntheticExitingLatch():
                 io = ctx.get_io()
@@ -548,7 +568,7 @@ class ConvertToSExpr:
                 )
 
                 ctx.store_local(ctx.loopcond_name, loopcond)
-                return
+                return None
 
             case SyntheticReturn():
                 ctx.load_local("__scfg_return_value__")
@@ -579,7 +599,7 @@ class ConvertToSExpr:
                 ),
             ):
                 ctx.scope.vardefs[name] = type_fqn
-                return
+                return ctx.get_io()
             case Node(
                 "AssignLocal",
                 target=Node("StrConst", value=str(target)),
@@ -632,6 +652,8 @@ class ConvertToSExpr:
                 args=list(args),
             ):
                 w_obj = vm.lookup_global(callee_fqn)
+                assert w_obj is not None
+                assert isinstance(w_obj, W_Func), type(w_obj)
                 functype = w_obj.w_functype
                 if "mlir::asm" == w_obj.fqn.namespace.fullname:
                     TODO(
@@ -658,12 +680,15 @@ class ConvertToSExpr:
                     )
                 )
                 restype = functype.w_restype
-                self.insert_typeinfo(res, self.emit_type(restype))
+                wrapped_restype = self.emit_type(restype)
+                self.insert_typeinfo(res, wrapped_restype)
                 return res
             case Node("Constant", value=int(ival)):
                 cval = grm.write(rg.PyInt(ival))
-                i32 = grm.write(sg.TypeExpr(name="builtins::i32", args=()))
-                self.insert_typeinfo(cval, i32)
+                i32_wrapped = grm.write(
+                    sg.TypeExpr(name="builtins::i32", args=())
+                )
+                self.insert_typeinfo(cval, i32_wrapped)
                 return cval
 
             case Node("Constant", value=None):
@@ -677,7 +702,7 @@ class ConvertToSExpr:
             case _:
                 raise NotImplementedError(node)
 
-    def emit_loc(self, loc_node: Loc) -> rg.Loc:
+    def emit_loc(self, loc_node: Loc) -> ase.SExpr:
         return self._context.grm.write(
             rg.Loc(
                 filename=loc_node.filename,

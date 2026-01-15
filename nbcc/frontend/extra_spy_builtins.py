@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 
 import base64
 
@@ -60,8 +60,8 @@ def w_MLIR_op(
     opname = vm.unwrap_str(w_opname)
     argtypes_w = w_argtypes.items_w
 
-    # functype
-    params = [FuncParam(w_T, "simple") for w_T in argtypes_w]
+    # functype - cast W_Object to W_Type (they should be types)
+    params = [FuncParam(cast(W_Type, w_T), "simple") for w_T in argtypes_w]
     w_functype = W_FuncType.new(params, w_restype=w_restype)
 
     def w_opimpl(vm: "SPyVM", *args_w: W_Object) -> RESTYPE:
@@ -82,15 +82,22 @@ def w_MLIR_asm(
     asm = vm.unwrap_str(w_asm)
     argtypes_w = w_argtypes.items_w
 
+    # Ensure all argument types have fqn attribute
+    for at in argtypes_w:
+        assert hasattr(at, "fqn"), f"Argument type {at} missing fqn attribute"
+
+    # Cast to W_Type after assertion for type safety
+    argtypes_typed = cast(list[W_Type], list(argtypes_w))
+
     fqn_parts = [
         asm,
         w_restype.fqn.fullname,
-        *(at.fqn.fullname for at in argtypes_w),
+        *(at.fqn.fullname for at in argtypes_typed),
     ]
     opname = base64.urlsafe_b64encode(("$".join(fqn_parts)).encode()).decode()
 
-    # functype
-    params = [FuncParam(w_T, "simple") for w_T in argtypes_w]
+    # functype - use the typed argtypes after assertion
+    params = [FuncParam(w_T, "simple") for w_T in argtypes_typed]
     w_functype = W_FuncType.new(params, w_restype=w_restype)
 
     def w_opimpl(vm: "SPyVM", *args_w: W_Object) -> RESTYPE:
@@ -118,10 +125,10 @@ def w_MLIR_transform(
         closure=fn.closure,
         locals_types_w=fn.locals_types_w,
     )
-    passes = [vm.unwrap_str(ps) for ps in passes.items_w]
+    passes_list = [vm.unwrap_str(ps) for ps in passes.items_w]
     vm.add_global(
         newfn.fqn,
         newfn,
-        irtag=IRTag("mlir.transforms", transforms=" ".join(passes)),
+        irtag=IRTag("mlir.transforms", transforms=" ".join(passes_list)),
     )
     return newfn

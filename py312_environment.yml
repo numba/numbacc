@@ -4,5 +4,6 @@ dependencies:
   - python =3.12
   - graphviz
   - python-graphviz
-
+  - cloudpickle
+  - pytest
 

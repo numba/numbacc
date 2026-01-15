@@ -1,3 +1,4 @@
+# mypy: disable-error-code="empty-body"
 from __future__ import annotations
 
 import warnings
@@ -15,6 +16,8 @@ from nbcc.developer import TODO
 Term = rvsdg.Term
 TermList = rvsdg.TermList
 _w = rvsdg.wildcard
+
+i64 = egglog.i64
 
 
 def egraph_optimize(egraph: egglog.EGraph):
@@ -176,7 +179,7 @@ def ruleset_simplify_builtin_arith(
             ),
             argvec[0] == lhs,
             argvec[1] == rhs,
-            argvec.length() == 2,
+            egglog.eq(argvec.length()).to(i64(2)),
         ).then(
             union(call.getPort(0)).with_(io),
             union(call.getPort(1)).with_(ctor(lhs, rhs)),
@@ -213,7 +216,7 @@ def ruleset_simplify_builtin_print(
                 args=rvsdg.TermList(argvec),
             ),
             argvec[0] == printee,
-            argvec.length() == 1,
+            egglog.eq(argvec.length()).to(i64(1)),
         ).then(
             union(call.getPort(0)).with_(builtin_ctor(io, printee)),
             union(call.getPort(0)).with_(call.getPort(1)),
@@ -259,11 +262,11 @@ def create_ruleset_struct__get_field__(w_obj, field_pos: int):
                 args=TermList(argvec),
             ),
             argvec[0] == struct,
-            argvec.length() == 1,
+            egglog.eq(argvec.length()).to(i64(1)),
         ).then(
             union(call.getPort(0)).with_(io),
             union(call.getPort(1)).with_(
-                Builtin_struct__get_field__(struct, field_pos)
+                Builtin_struct__get_field__(struct, i64(field_pos))
             ),
         )
 

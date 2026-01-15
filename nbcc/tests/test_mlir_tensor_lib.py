@@ -27,7 +27,7 @@ def make_temp_directory() -> Generator[Path, None, None]:
 
 
 @contextmanager
-def compile_lib(filename: str, libname: str) -> str:
+def compile_lib(filename: str, libname: str) -> Generator[Path, None, None]:
     path = example_dir / filename
     assert path.exists()
     with make_temp_directory() as dir:

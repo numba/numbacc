@@ -1,6 +1,6 @@
 import subprocess as subp
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Sequence, Union
 
 import mlir.passmanager as passmanager
 from mlir import ir
@@ -259,10 +259,6 @@ class ConvertLinalgToParallelLoops(ModulePass):
     passname = "convert-linalg-to-parallel-loops"
 
 
-class ConvertLinalgToAffineLoops(ModulePass):
-    passname = "convert-linalg-to-affine-loops"
-
-
 class LowerAffine(FunctionPass):
     passname = "lower-affine"
 
@@ -351,6 +347,8 @@ class PassManager:
       `with_subprocess=True`.
     """
 
+    _opt: Union[SubProcessOpt, InProcessOpt]
+
     def __init__(self, passes: Sequence[Pass], with_subprocess: bool):
         self._with_subprocess = with_subprocess
         if with_subprocess:
@@ -366,6 +364,7 @@ class PassManager:
 
     def get_log(self) -> str:
         if self._with_subprocess:
+            assert isinstance(self._opt, SubProcessOpt)
             return self._opt.last_stderr
         else:
             return ""

@@ -6,6 +6,7 @@ import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 from pprint import pprint
+from typing import cast, Sequence
 
 import sealir.rvsdg.grammar as rg
 import spy
@@ -41,6 +42,7 @@ def compile_shared_lib(path: str, out_path: str) -> None:
 def compile_to_mlir(path: str) -> ir.Module:
     tu = frontend(path)
 
+    func_map: dict[str, rg.Func]
     func_map, mdlist = middle_end(tu)
     pprint(func_map)
     be = Backend()
@@ -49,7 +51,7 @@ def compile_to_mlir(path: str) -> ir.Module:
 
     module = be.make_module(path)
 
-    transform_map = {}
+    transform_map: dict[str, Sequence[str]] = {}
     for fname, rvsdg_ir in func_map.items():
         lowering = Lowering(be, module, mdmap, func_map)
         TODO("Not handling lowering argtypes")
@@ -115,7 +117,10 @@ def make_binary(module: ir.Module, out_path: str):
 def make_shared(module: ir.Module, out_path: str):
     from ctypes.util import find_library
 
-    libdir = os.path.dirname(find_library("mlir_c_runner_utils"))
+    lib_path = find_library("mlir_c_runner_utils")
+    if lib_path is None:
+        raise RuntimeError("Could not find mlir_c_runner_utils library")
+    libdir = os.path.dirname(lib_path)
     with ExitStack() as raii:
         temp_file_mlir = raii.enter_context(
             tempfile.NamedTemporaryFile(suffix=".mlir", mode="w")
@@ -195,9 +200,11 @@ def make_shared(module: ir.Module, out_path: str):
         )
 
 
-def middle_end(tu: TranslationUnit) -> tuple[dict[str, SExpr], list[SExpr]]:
-    func_nodes = {}
-    mdlist = []
+def middle_end(
+    tu: TranslationUnit,
+) -> tuple[dict[str, rg.Func], list[TypeInfo | IRTag]]:
+    func_nodes: dict[str, rg.Func] = {}
+    mdlist: list[TypeInfo | IRTag] = []
 
     for fqn in tu.list_functions():
         fi = tu.get_function(fqn)
@@ -223,15 +230,17 @@ def middle_end(tu: TranslationUnit) -> tuple[dict[str, SExpr], list[SExpr]]:
 
         tape = fi.region._tape
         last = tape.last
-        root = extresult.convert(fi.region, ExtendEGraphToRVSDG)
+        converted_root: SExpr = extresult.convert(
+            fi.region, ExtendEGraphToRVSDG
+        )
 
-        for node in root._args:
+        for node in converted_root._args:
             match node:
                 case rg.Func(fname=str(matched_fqn)):
                     assert matched_fqn not in func_nodes
                     func_nodes[matched_fqn] = node
 
-        crawler = TapeCrawler(tape, root._get_downcast())
+        crawler = TapeCrawler(tape, converted_root._get_downcast())
         crawler.move_to_pos_of(last)
         crawler.move_to_first_record()
 
@@ -244,9 +253,9 @@ def middle_end(tu: TranslationUnit) -> tuple[dict[str, SExpr], list[SExpr]]:
 
     assert len(func_nodes) >= 1
     for func in func_nodes.values():
-        print(format_rvsdg(func))
+        print(format_rvsdg(cast(SExpr, func)))
 
-        print(func._tape.dump())
+        print(cast(SExpr, func)._tape.dump())
     return func_nodes, mdlist
 
 
@@ -275,7 +284,7 @@ def expand_struct_type(tu: TranslationUnit, egraph):
         create_ruleset_struct__make__,
     )
 
-    schedule = Ruleset("empty")
+    schedule = Ruleset(None)  # empty ruleset
     for fqn_struct, w_obj_struct in tu._structs.items():
         print(fqn_struct, w_obj_struct)
 

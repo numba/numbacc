@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import base64
-from collections import defaultdict
 import ctypes
+from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Any, Callable, Coroutine, Sequence, cast
+from abc import ABC, abstractmethod
 
 import mlir.dialects.arith as arith
 import mlir.dialects.cf as cf
@@ -13,25 +14,22 @@ import mlir.dialects.func as func
 import mlir.dialects.scf as scf
 import mlir.execution_engine as execution_engine
 import mlir.ir as ir
-
 import mlir.runtime as runtime
-from mlir.dialects.transform.interpreter import apply_named_sequence
-
-from mlir.ir import _GlobalDebug
-
-
-from spy.fqn import FQN
-
-from .mlir_passes import PassManager
 import numpy as np
-
 from mlir.dialects import llvm
+from mlir.dialects.transform.interpreter import apply_named_sequence
+from mlir.ir import _GlobalDebug
 from sealir import ase
+from sealir.ase import SExpr
+from sealir.dispatchtable import DispatchTableBuilder, dispatchtable
 from sealir.rvsdg import grammar as rg
 from sealir.rvsdg import internal_prefix
+from spy.fqn import FQN
 
 from nbcc.developer import TODO
+
 from ..frontend import grammar as sg
+from .mlir_passes import PassManager
 
 # ## MLIR Backend Implementation
 #
@@ -66,7 +64,7 @@ class MDMap:
                     breakpoint()
                     TODO(f"Unknown MD: {md}: {type(md)}")
 
-    def lookup_irtag(self, val: ase.SExpr) -> list[sg.TypeInfo]:
+    def lookup_irtag(self, val: ase.SExpr) -> list[sg.IRTag]:
         return [x for x in self.mdmap[val] if isinstance(x, sg.IRTag)]
 
     def lookup_typeinfo(self, val: ase.SExpr) -> list[sg.TypeInfo]:
@@ -81,77 +79,526 @@ class MDMap:
         raise NameError(f"{fqn!r} not found")
 
 
-class Backend:
+class BackendInterface(ABC):
+    """Abstract interface for MLIR compilation backends.
+
+    Defines the contract that Lowering depends on, enabling different
+    backend implementations while maintaining MLIR-specific typing.
+    """
+
+    # Type Constants - Properties for clean access pattern
+    @property
+    @abstractmethod
+    def context(self) -> ir.Context:
+        """MLIR context for creating types and operations."""
+
+    @property
+    @abstractmethod
+    def i32(self) -> ir.Type:
+        """32-bit integer type."""
+
+    @property
+    @abstractmethod
+    def i64(self) -> ir.Type:
+        """64-bit integer type."""
+
+    @property
+    @abstractmethod
+    def f64(self) -> ir.Type:
+        """64-bit float type."""
+
+    @property
+    @abstractmethod
+    def boolean(self) -> ir.Type:
+        """Boolean (1-bit integer) type."""
+
+    @property
+    @abstractmethod
+    def none_type(self) -> ir.Type:
+        """None/void type representation."""
+
+    @property
+    @abstractmethod
+    def io_type(self) -> ir.Type:
+        """IO token type for sequencing."""
+
+    @property
+    @abstractmethod
+    def llvm_ptr(self) -> ir.Type:
+        """LLVM pointer type."""
+
+    # Core Methods
+    @abstractmethod
+    def lower_type(self, ty) -> ir.Type:
+        """Convert SealIR types to backend IR types."""
+
+    @abstractmethod
+    def get_ll_type(self, expr, mdmap) -> ir.Type | None:
+        """Get backend type for expression with metadata."""
+
+    @abstractmethod
+    def handle_builtin_op(
+        self, op_name: str, args, state, lowering_instance=None
+    ):
+        """Handle builtin operations during lowering."""
+
+    @abstractmethod
+    def handle_mlir_op(self, mlir_op: str, resty, args):
+        """Handle MLIR-specific operations during lowering."""
+
+
+class Backend(BackendInterface):
 
     def __init__(self):
-        self.context = context = ir.Context()
+        self._context = context = ir.Context()
         context.enable_multithreading(False)
         # context.allow_unregistered_dialects = True
         with context, ir.Location.name("Backend.__init__"):
             self.f32 = ir.F32Type.get(context=context)
-            self.f64 = ir.F64Type.get(context=context)
+            self._f64 = ir.F64Type.get(context=context)
             self.index_type = ir.IndexType.get(context=context)
             self.i8 = ir.IntegerType.get_signless(8, context=context)
-            self.i32 = ir.IntegerType.get_signless(32, context=context)
-            self.i64 = ir.IntegerType.get_signless(64, context=context)
-            self.boolean = ir.IntegerType.get_signless(1, context=context)
-            self.io_type = ir.IntegerType.get_signless(1, context=context)
-            self.llvm_ptr = ir.Type.parse("!llvm.ptr")
-            self.none_type = ir.Type.parse("!llvm.struct<()>")
+            self._i32 = ir.IntegerType.get_signless(32, context=context)
+            self._i64 = ir.IntegerType.get_signless(64, context=context)
+            self._boolean = ir.IntegerType.get_signless(1, context=context)
+            self._io_type = ir.IntegerType.get_signless(1, context=context)
+            self._llvm_ptr = ir.Type.parse("!llvm.ptr")
+            self._none_type = ir.Type.parse("!llvm.struct<()>")
 
-            self.unranked_tensor_f64 = ir.UnrankedTensorType.get(self.f64)
+            self.unranked_tensor_f64 = ir.UnrankedTensorType.get(self._f64)
             self.unranked_memref_f64 = ir.UnrankedMemRefType.get(
-                self.f64, memory_space=None
+                self._f64, memory_space=None
             )
             unknown_dim = ir.ShapedType.get_dynamic_size()
             self.tensor_1d_f64 = ir.RankedTensorType.get(
-                shape=[unknown_dim], element_type=self.f64
+                shape=[unknown_dim], element_type=self._f64
             )
             self.tensor_2d_f64 = ir.RankedTensorType.get(
-                shape=[unknown_dim, unknown_dim], element_type=self.f64
+                shape=[unknown_dim, unknown_dim], element_type=self._f64
             )
             self.memref_1d_f64 = ir.MemRefType.get(
-                shape=[unknown_dim], element_type=self.f64
+                shape=[unknown_dim], element_type=self._f64
             )
+
+    # Property accessors for BackendInterface compliance
+    # Note: These properties expose existing instance attributes created in __init__
+    # This satisfies the abstract properties defined in BackendInterface
+
+    @property
+    def context(self) -> ir.Context:
+        return self._context
+
+    @property
+    def i32(self) -> ir.Type:
+        return self._i32
+
+    @property
+    def i64(self) -> ir.Type:
+        return self._i64
+
+    @property
+    def f64(self) -> ir.Type:
+        return self._f64
+
+    @property
+    def boolean(self) -> ir.Type:
+        return self._boolean
+
+    @property
+    def none_type(self) -> ir.Type:
+        return self._none_type
+
+    @property
+    def io_type(self) -> ir.Type:
+        return self._io_type
+
+    @property
+    def llvm_ptr(self) -> ir.Type:
+        return self._llvm_ptr
 
     def lower_type(self, ty: sg.TypeExpr) -> ir.Type:
         """Type Lowering
 
         Convert SealIR types to MLIR types for compilation.
         """
-        match ty:
-            case sg.TypeExpr(name=str(name), args=()):
-                fqn = FQN(name)
-                if name == "mlir::type::()":
-                    return None
-                elif fqn.namespace.fullname == "mlir::type":
-                    return ir.Type.parse(fqn.symbol_name, context=self.context)
-                else:
-                    match name:
-                        case "builtins::i32":
-                            return self.i32
-                        case "types::NoneType":
-                            return self.none_type
 
-                        case "mlir_tensor_lib::make_tensor_type[mlir::type::f64]::TensorType":
-                            TODO(
-                                "TODO: lower_type mlir_tensor_lib::make_tensor_type[f64]::TensorType "
-                            )
-                            return self.tensor_1d_f64
-                        case "llm_tensor::make_tensor_type_2d[mlir::type::f64]::TensorType":
-                            TODO(
-                                "TODO: lower_type mlir_tensor_lib::make_tensor_type[f64]::TensorType "
-                            )
-                            return self.tensor_2d_f64
+        return self._dispatch_lower_type(self, fqn=FQN(ty.name), args=ty.args)
 
-        raise NotImplementedError(f"unknown type: {ty}")
+    @dispatchtable
+    @staticmethod
+    def _dispatch_lower_type(disp: DispatchTableBuilder) -> None:
+        @disp.default
+        def _unknown_type(self, fqn: FQN, args: tuple):
+            raise NotImplementedError(f"unknown type: {fqn}")
+
+        def type_name_matches(fullname):
+            def wrap(self, fqn: FQN, args: tuple) -> bool:
+                return fqn.fullname == fullname
+
+            return wrap
+
+        @disp.case(type_name_matches("mlir::type::()"))
+        def _handle_void(self, fqn: FQN, args: tuple):
+            return None
+
+        @disp.case(
+            lambda self, fqn, args: fqn.namespace.fullname == "mlir::type"
+        )
+        def _handle_mlir_types_by_parsing(self, fqn: FQN, args: tuple):
+            return ir.Type.parse(fqn.symbol_name, context=self.context)
+
+        def by_typename(fullname: str):
+            def wrap(self, fqn, args):
+                return fqn.fullname == fullname
+
+            return wrap
+
+        @disp.case(by_typename("builtins::i32"))
+        def _handle_builtins_i32(self, fqn: FQN, args: tuple):
+            return self.i32
+
+        @disp.case(by_typename("types::NoneType"))
+        def _handle_none(self, fqn: FQN, args: tuple):
+            return self.none_type
+
+        # XXX: the following are temporary
+        @disp.case(
+            by_typename(
+                "mlir_tensor_lib::make_tensor_type[mlir::type::f64]::TensorType"
+            )
+        )
+        def _handle_TensorType_mlir_lib(self, fqn: FQN, args: tuple):
+            TODO(
+                "TODO: lower_type mlir_tensor_lib::make_tensor_type[f64]::TensorType "
+            )
+            return self.tensor_1d_f64
+
+        @disp.case(
+            by_typename(
+                "llm_tensor::make_tensor_type_2d[mlir::type::f64]::TensorType"
+            )
+        )
+        def _handle_TensorType_llm(self, fqn: FQN, args: tuple):
+            TODO(
+                "TODO: lower_type mlir_tensor_lib::make_tensor_type[f64]::TensorType "
+            )
+            return self.tensor_2d_f64
+
+    def handle_builtin_op(
+        self, op_name: str, args, state: "LowerStates", lowering_instance=None
+    ):
+        return self._dispatch_handle_builtin_op(
+            self, op_name, args, state, lowering_instance
+        )
+
+    @dispatchtable
+    @staticmethod
+    def _dispatch_handle_builtin_op(disp: DispatchTableBuilder) -> None:
+        @disp.default
+        def _unknown_builtin_op(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            raise NotImplementedError(f"Unhandled BuiltinOp {op_name!r}")
+
+        def builtin_op_matches(op_name: str):
+            def wrap(
+                self,
+                op_name_arg: str,
+                args,
+                state: "LowerStates",
+                lowering_instance=None,
+            ) -> bool:
+                return op_name_arg == op_name
+
+            return wrap
+
+        @disp.case(builtin_op_matches("i32_add"))
+        def _handle_i32_add(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            lhs, rhs = args
+            return arith.addi(lhs, rhs)
+
+        @disp.case(builtin_op_matches("i32_sub"))
+        def _handle_i32_sub(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            lhs, rhs = args
+            return arith.subi(lhs, rhs)
+
+        @disp.case(builtin_op_matches("i32_lt"))
+        def _handle_i32_lt(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            lhs, rhs = args
+            return arith.cmpi(arith.CmpIPredicate.slt, lhs, rhs)
+
+        @disp.case(builtin_op_matches("i32_gt"))
+        def _handle_i32_gt(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            lhs, rhs = args
+            return arith.cmpi(arith.CmpIPredicate.sgt, lhs, rhs)
+
+        @disp.case(builtin_op_matches("i32_not"))
+        def _handle_i32_not(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            (operand,) = args
+            return arith.cmpi(
+                arith.CmpIPredicate.eq,
+                operand,
+                arith.constant(self.i32, 0),
+            )
+
+        @disp.case(builtin_op_matches("print_i32"))
+        def _handle_print_i32(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            io, operand = args
+
+            print_fn = lowering_instance.declare_builtins(
+                "spy_builtins$print_i32", [self.i32], []
+            )
+            func.call(
+                print_fn.type.results, "spy_builtins$print_i32", [operand]
+            )
+            return io
+
+        @disp.case(builtin_op_matches("print_str"))
+        def _handle_print_str(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            io, operand = args
+
+            print_fn = lowering_instance.declare_builtins(
+                "spy_builtins$print_str", [self.llvm_ptr], []
+            )
+
+            func.call(
+                print_fn.type.results, "spy_builtins$print_str", [operand]
+            )
+            return io
+
+        @disp.case(builtin_op_matches("struct_make"))
+        def _handle_struct_make(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            # args are already processed values
+            tys = [v.type for v in args]
+            struct_type = llvm.StructType.get_literal(tys)
+
+            struct_value = llvm.UndefOp(struct_type)
+            for i, v in enumerate(args):
+                struct_value = llvm.insertvalue(
+                    struct_value, v, ir.DenseI64ArrayAttr.get([i])
+                )
+            return struct_value
+
+        @disp.case(builtin_op_matches("struct_get"))
+        def _handle_struct_get(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            struct_value, pos = args
+
+            resty = self.i32  # HACK
+            return llvm.extractvalue(
+                resty, struct_value, ir.DenseI64ArrayAttr.get([pos])
+            )
+
+    def handle_mlir_op(self, mlir_op: str, resty, args):
+        return self._dispatch_handle_mlir_op(self, mlir_op, resty, args)
+
+    @dispatchtable
+    @staticmethod
+    def _dispatch_handle_mlir_op(disp: DispatchTableBuilder) -> None:
+        @disp.default
+        def _unknown_mlir_op(self, mlir_op: str, resty, args):
+            raise NotImplementedError(f"Unhandled MLIR op {mlir_op!r}")
+
+        def mlir_op_matches(op_name: str):
+            def wrap(self, mlir_op: str, resty, args) -> bool:
+                return mlir_op == op_name
+
+            return wrap
+
+        @disp.case(mlir_op_matches("tensor.add"))
+        def _handle_tensor_add(self, mlir_op: str, resty, args):
+            from mlir.dialects import arith, linalg, tensor
+
+            [lhs, rhs] = args
+            index = arith.constant(self.index_type, 0)
+            dim = tensor.dim(args[0], index)
+            out = tensor.empty([dim], element_type=self.f64)
+            return linalg.add(lhs, rhs, outs=[out])
+
+        @disp.case(mlir_op_matches("linalg.add"))
+        def _handle_linalg_add(self, mlir_op: str, resty, args):
+            from mlir.dialects import linalg
+
+            # linalg.add needs a region
+            [lhs, rhs, res] = args
+            res = linalg.add(lhs, rhs, outs=[res])
+            return res
+
+        @disp.case(mlir_op_matches("linalg.sub"))
+        def _handle_linalg_sub(self, mlir_op: str, resty, args):
+            from mlir.dialects import linalg
+
+            # linalg.sub needs a region
+            [lhs, rhs, res] = args
+            res = linalg.sub(lhs, rhs, outs=[res])
+            return res
+
+        @disp.case(mlir_op_matches("linalg.mul"))
+        def _handle_linalg_mul(self, mlir_op: str, resty, args):
+            from mlir.dialects import linalg
+
+            # linalg.mul needs a region
+            [lhs, rhs, res] = args
+            res = linalg.mul(lhs, rhs, outs=[res])
+            return res
+
+        @disp.case(mlir_op_matches("linalg.div"))
+        def _handle_linalg_div(self, mlir_op: str, resty, args):
+            from mlir.dialects import linalg
+
+            # linalg.div needs a region
+            [lhs, rhs, res] = args
+            res = linalg.div(lhs, rhs, outs=[res])
+            return res
+
+        @disp.case(mlir_op_matches("linalg.exp"))
+        def _handle_linalg_exp(self, mlir_op: str, resty, args):
+            from mlir.dialects import linalg
+
+            # linalg.exp needs a region
+            [src, res] = args
+            res = linalg.exp(src, outs=[res])
+            return res
+
+        @disp.case(mlir_op_matches("mlir_linalg_reduce_sum_inner_keepdims"))
+        def _handle_reduce_sum_inner_keepdims(self, mlir_op: str, resty, args):
+            from mlir import ir
+            from mlir.dialects import arith, linalg, tensor
+
+            [arg] = args
+            dtype = arg.type.element_type
+            c0 = arith.constant(self.index_type, 0)
+            dim = tensor.dim(arg, c0)
+            init = tensor.empty(sizes=[dim], element_type=dtype)
+            neg_inf = arith.constant(self.f64, float(0))
+            init_filled = linalg.fill(neg_inf, outs=[init])
+            max_reduce = linalg.reduce(
+                result=[init.type],
+                inputs=[arg],
+                inits=[init_filled],
+                dimensions=[1],
+            )
+
+            body = max_reduce.owner.regions[0].blocks.append(dtype, dtype)
+            with ir.InsertionPoint(body):
+                linalg.YieldOp(
+                    [arith.addf(body.arguments[0], body.arguments[1])]
+                )
+
+            assert max_reduce.owner.verify()
+
+            c1 = arith.constant(self.index_type, 1)
+            dim1 = tensor.dim(arg, c1)
+            output = tensor.empty(sizes=(dim, dim1), element_type=dtype)
+            assert output.owner.verify()
+
+            bc = linalg.broadcast(
+                input=max_reduce, outs=[output], dimensions=[1]
+            )
+            assert bc.verify()
+            return bc
+
+        @disp.case(mlir_op_matches("mlir_linalg_reduce_max_inner_keepdims"))
+        def _handle_reduce_max_inner_keepdims(self, mlir_op: str, resty, args):
+            from mlir import ir
+            from mlir.dialects import arith, linalg, tensor
+
+            [arg] = args
+            dtype = arg.type.element_type
+            c0 = arith.constant(self.index_type, 0)
+            dim = tensor.dim(arg, c0)
+            init = tensor.empty(sizes=[dim], element_type=dtype)
+            neg_inf = arith.constant(self.f64, float("-inf"))
+            init_filled = linalg.fill(neg_inf, outs=[init])
+            max_reduce = linalg.reduce(
+                result=[init.type],
+                inputs=[arg],
+                inits=[init_filled],
+                dimensions=[1],
+            )
+
+            body = max_reduce.owner.regions[0].blocks.append(dtype, dtype)
+            with ir.InsertionPoint(body):
+                linalg.YieldOp(
+                    [arith.maximumf(body.arguments[0], body.arguments[1])]
+                )
+
+            assert max_reduce.owner.verify()
+
+            c1 = arith.constant(self.index_type, 1)
+            dim1 = tensor.dim(arg, c1)
+            output = tensor.empty(sizes=(dim, dim1), element_type=dtype)
+            assert output.owner.verify()
+
+            bc = linalg.broadcast(
+                input=max_reduce, outs=[output], dimensions=[1]
+            )
+            assert bc.verify()
+            return bc
 
     def get_ll_type(self, expr: ase.SExpr, mdmap: MDMap) -> sg.TypeInfo | None:
         mds = mdmap.lookup_typeinfo(expr)
         if not mds:
             return None
         [ty] = mds
-        return self.lower_type(ty.type_expr)
+        return self.lower_type(cast(sg.TypeExpr, ty.type_expr))
 
     def make_module(self, module_name: str) -> ir.Module:
         with self.context:
@@ -306,23 +753,23 @@ class Backend:
 
 
 class Lowering:
-    be: Backend
+    be: BackendInterface
     module: ir.Module
     mdmap: MDMap
     loc: ir.Location
 
     def __init__(
         self,
-        be: Backend,
+        be: BackendInterface,
         module: ir.Module,
         mdmap: MDMap,
-        func_map: dict[str, ase.SExpr],
+        func_map: dict[str, rg.Func],
     ):
         self.be = be
         self.module = module
         self.mdmap = mdmap
         self.func_map = func_map
-        self._declared = {}
+        self._declared: dict[str, func.FuncOp] = {}
 
     def get_return_types(self, root) -> list[ir.Type]:
         [retval] = [
@@ -338,11 +785,14 @@ class Lowering:
         return outs
 
     def irtags(self, root: rg.Func) -> dict:
-        out = {}
-        if irtags := self.mdmap.lookup_irtag(root.body):
+        out: dict[str, list[tuple[str, str]]] = {}
+        if irtags := self.mdmap.lookup_irtag(cast(ase.SExpr, root.body)):
             for irtag in irtags:
                 bin = out.setdefault(irtag.tag, [])
-                for irtagdata in irtag.data[0].children:
+                for irtagdata in cast(
+                    list[sg.IRTagData],
+                    cast(rg.GenericList, irtag.data[0]).children,
+                ):
                     bin.append((irtagdata.key, irtagdata.value))
         return out
 
@@ -362,9 +812,10 @@ class Lowering:
         self.module_body = module_body = ir.InsertionPoint(module.body)
         # Convert SealIR types to MLIR types.
 
-        input_types = tuple(
-            [self.be.lower_type(x) for x in root.args.arguments]
-        )
+        assert isinstance(root.args, rg.Args)
+        arguments = root.args.arguments
+
+        input_types = tuple([self.be.lower_type(x) for x in arguments])
         output_types = self.get_return_types(root)
 
         with context, loc, module_body:
@@ -416,8 +867,14 @@ class Lowering:
 
         with context, loc, function_entry:
             memo = ase.traverse(
-                root,
-                self.lower_expr,
+                cast(ase.SExpr, root),
+                cast(
+                    Callable[
+                        [ase.SExpr, ase.TraverseState],
+                        "Coroutine[ase.SExpr, Any, Any]",
+                    ],
+                    self.lower_expr,
+                ),
                 LowerStates(
                     push=push,
                     get_region_args=get_region_args,
@@ -444,22 +901,23 @@ class Lowering:
         Implement the core expression lowering logic for various RVSDG
         constructs including functions, regions, control flow, and operations.
         """
-
-        module = self.module
-        context = self.be.context
         match expr:
-            case rg.Func(args=args, body=body, fname=fqn):
+            case rg.Func(args=args, body=body, fname=fqn):  # type: ignore[misc]
                 TODO("XXX: no way to get return type")
                 # [fqn_ti] = self.mdmap.lookup_typeinfo_by_fqn(fqn)
                 # resty = fqn_ti.type_expr.args[0]
                 # print(fqn)
                 # print(resty.name)
+                func_args = args
                 names = {
                     argspec.name: state.function_block.arguments[i]
-                    for i, argspec in enumerate(args.arguments)
+                    for i, argspec in enumerate(func_args.arguments)
                 }
+                # Cast body to known type from rg.Func pattern match
+                func_body = body
+                region_begin = func_body.begin
                 argvalues = []
-                for k in body.begin.inports:
+                for k in region_begin.inports:
                     if k == internal_prefix("io"):
                         v = arith.constant(self.be.io_type, 0)
                     else:
@@ -467,9 +925,11 @@ class Lowering:
                     argvalues.append(v)
 
                 with state.push(argvalues):
-                    outs = yield body
+                    outs = yield func_body
 
-                portnames = [p.name for p in body.ports]
+                # Handle SExpr - check for ports attribute or use _args with name filtering
+                func_body_ports = func_body.ports
+                portnames = [cast(rg.Port, p).name for p in func_body_ports]
 
                 if self.get_return_types(expr) == []:
                     func.ReturnOp([])
@@ -484,8 +944,10 @@ class Lowering:
                     func.ReturnOp([self._cast_return_value(retval)])
 
             case rg.RegionBegin(inports=ins):
+                # Convert ins from tuple to list
+                inports: list[str] = list(ins)
                 portvalues = []
-                for i, k in enumerate(ins):
+                for i, k in enumerate(inports):
                     pv = state.get_region_args()[i]
                     portvalues.append(pv)
                 return tuple(portvalues)
@@ -495,8 +957,10 @@ class Lowering:
                 ports=ports,
             ):
                 yield begin
+                # Convert ports from tuple to list
+                region_ports = [cast(rg.Port, p) for p in ports]
                 portvalues = []
-                for p in ports:
+                for p in region_ports:
                     pv = yield p.value
                     portvalues.append(pv)
                 return tuple(portvalues)
@@ -505,7 +969,7 @@ class Lowering:
                 return state.function_block.arguments[idx]
 
             case rg.Unpack(val=source, idx=int(idx)):
-                ports = yield source
+                ports = yield cast(tuple, source)
                 return ports[idx]
 
             case rg.DbgValue(value=value):
@@ -561,88 +1025,31 @@ class Lowering:
 
                 return str_addr
 
-            # NBCC specific
-            case sg.BuiltinOp("i32_add", (lhs, rhs)):
-                lhs = yield lhs
-                rhs = yield rhs
-                return arith.addi(lhs, rhs)
-
-            case sg.BuiltinOp("i32_sub", (lhs, rhs)):
-                lhs = yield lhs
-                rhs = yield rhs
-                return arith.subi(lhs, rhs)
-
-            case sg.BuiltinOp("i32_lt", (lhs, rhs)):
-                lhs = yield lhs
-                rhs = yield rhs
-                return arith.cmpi(arith.CmpIPredicate.slt, lhs, rhs)
-
-            case sg.BuiltinOp("i32_gt", (lhs, rhs)):
-                lhs = yield lhs
-                rhs = yield rhs
-                return arith.cmpi(arith.CmpIPredicate.sgt, lhs, rhs)
-
-            case sg.BuiltinOp("i32_not", (operand,)):
-                operand = yield operand
-                return arith.cmpi(
-                    arith.CmpIPredicate.eq,
-                    operand,
-                    arith.constant(self.be.i32, 0),
-                )
-
-            case sg.BuiltinOp("print_i32", (io, operand)):
-                io = yield io
-                operand = yield operand
-
-                print_fn = self.declare_builtins(
-                    "spy_builtins$print_i32", [self.be.i32], []
-                )
-                func.call(
-                    print_fn.type.results, "spy_builtins$print_i32", [operand]
-                )
-                return io
-
-            case sg.BuiltinOp("print_str", (io, operand)):
-                io = yield io
-                operand = yield operand
-
-                print_fn = self.declare_builtins(
-                    "spy_builtins$print_str", [self.be.llvm_ptr], []
-                )
-
-                func.call(
-                    print_fn.type.results, "spy_builtins$print_str", [operand]
-                )
-                return io
-
-            case sg.BuiltinOp("struct_make", args=raw_args):
-                args = []
-                for v in raw_args:
-                    args.append((yield v))
-
-                tys = [v.type for v in args]
-                struct_type = llvm.StructType.get_literal(tys)
-
-                struct_value = llvm.UndefOp(struct_type)
-                for i, v in enumerate(args):
-                    struct_value = llvm.insertvalue(
-                        struct_value, v, ir.DenseI64ArrayAttr.get([i])
+            # NBCC specific - BuiltinOp cases handled by dispatch table
+            case sg.BuiltinOp(opname=op_name, args=args):
+                # Cast args to known tuple type from pattern match
+                builtin_args: tuple[SExpr, ...] = args
+                # Handle special case for struct_get which has mixed arg types
+                if op_name == "struct_get":
+                    struct, pos = builtin_args
+                    struct_value = yield struct
+                    return self.be.handle_builtin_op(
+                        op_name, [struct_value, pos], state, self
                     )
-                return struct_value
-
-            case sg.BuiltinOp("struct_get", args=(struct, int(pos))):
-                struct_value = yield struct
-
-                resty = self.be.i32  # HACK
-                return llvm.extractvalue(
-                    resty, struct_value, ir.DenseI64ArrayAttr.get([pos])
-                )
+                else:
+                    # Process arguments first, similar to MLIR ops
+                    lowered_args = []
+                    for arg in builtin_args:
+                        lowered_args.append((yield arg))
+                    return self.be.handle_builtin_op(
+                        op_name, lowered_args, state, self
+                    )
 
             case rg.PyBool(val):
-                return arith.constant(self.boolean, val)
+                return arith.constant(self.be.boolean, val)
 
             case rg.PyInt(val):
-                return arith.constant(self.i64, val)
+                return arith.constant(self.be.i64, val)
 
             case rg.IfElse(
                 cond=cond, body=body, orelse=orelse, operands=operands
@@ -655,6 +1062,8 @@ class Lowering:
                 result_tys: list[ir.Type] = []
 
                 # determine result types
+                assert isinstance(body, rg.RegionEnd)
+                assert isinstance(orelse, rg.RegionEnd)
                 for left_port, right_port in zip(
                     body.ports, orelse.ports, strict=True
                 ):
@@ -687,20 +1096,23 @@ class Lowering:
                 return if_op.results
 
             case rg.Loop(body=rg.RegionEnd() as body, operands=operands):
+                # Cast operands to expected type from pattern match
+                loop_operands = cast("list[SExpr]", operands)
                 # process operands
-                operand_vals = []
-                for op in operands:
-                    operand_vals.append((yield op))
+                loop_operand_vals: list[ir.Value] = []
+                for op in loop_operands:
+                    loop_operand_vals.append(cast(ir.Value, (yield op)))
 
-                result_tys = []
-                for op in operand_vals:
-                    result_tys.append(op.type)
+                loop_result_tys: list[ir.Type] = []
+                for op in loop_operand_vals:
+                    loop_result_tys.append(cast(ir.Value, op).type)
 
                 while_op = scf.WhileOp(
-                    results_=result_tys, inits=[op for op in operand_vals]
+                    results_=loop_result_tys,
+                    inits=[op for op in loop_operand_vals],
                 )
-                before_block = while_op.before.blocks.append(*result_tys)
-                after_block = while_op.after.blocks.append(*result_tys)
+                before_block = while_op.before.blocks.append(*loop_result_tys)
+                after_block = while_op.after.blocks.append(*loop_result_tys)
                 new_ops = before_block.arguments
 
                 # Before Region
@@ -736,11 +1148,16 @@ class Lowering:
 
                 [callee_ti] = mdmap.lookup_typeinfo(callee_fqn)
 
-                resty = self.be.lower_type(callee_ti.type_expr.args[0])
+                type_expr: sg.TypeExpr = cast(sg.TypeExpr, callee_ti.type_expr)
+                resty = self.be.lower_type(
+                    cast(sg.TypeExpr, type_expr.args[0])
+                )
                 argtys = []
                 for arg in args_vals:
                     [ti] = mdmap.lookup_typeinfo(arg)
-                    argtys.append(self.be.lower_type(ti.type_expr))
+                    argtys.append(
+                        self.be.lower_type(cast(sg.TypeExpr, ti.type_expr))
+                    )
 
                 lowered_args = []
                 for arg in args_vals:
@@ -748,23 +1165,24 @@ class Lowering:
 
                 c_name = FQN(callee_fqn.fullname).c_name
 
-                fqn = FQN(callee_fqn.fullname)
+                callee_fqn_obj: FQN = FQN(callee_fqn.fullname)
 
-                if fqn.namespace.fullname == "mlir::op":
+                if callee_fqn_obj.namespace.fullname == "mlir::op":
                     TODO("XXX: hardcode support of MLIR::OP ")
 
-                    res = self._handle_mlir_op(
-                        fqn.symbol_name,
+                    res = self.be.handle_mlir_op(
+                        callee_fqn_obj.symbol_name,
                         resty,
                         lowered_args,
                     )
-                    if op := getattr(res, "owner", None):
-                        assert op.verify()
+                    owner = getattr(res, "owner", None)
+                    if owner is not None:
+                        assert owner.verify()
                     return [io_val, res]
                     # self.declare_builtins(c_name, argtys, [resty])
-                elif fqn.namespace.fullname == "mlir::asm":
+                elif callee_fqn_obj.namespace.fullname == "mlir::asm":
                     res = self._handle_mlir_asm(
-                        fqn.symbol_name,
+                        callee_fqn_obj.symbol_name,
                         resty,
                         lowered_args,
                     )
@@ -789,129 +1207,6 @@ class Lowering:
                 raise NotImplementedError(
                     expr, type(expr), ase.as_tuple(expr, depth=3)
                 )
-
-    def _handle_mlir_op(self, mlir_op: str, resty, args):
-        from mlir.dialects import linalg, tensor, bufferization
-
-        match mlir_op:
-            case "tensor.add":
-                [lhs, rhs] = args
-                index = arith.constant(self.be.index_type, 0)
-                dim = tensor.dim(args[0], index)
-                out = tensor.empty([dim], element_type=self.be.f64)
-                return linalg.add(lhs, rhs, outs=[out])
-            case "linalg.add":
-                # linalg.add needs a region
-                [lhs, rhs, res] = args
-                res = linalg.add(lhs, rhs, outs=[res])
-                return res
-            case "linalg.sub":
-                # linalg.sub needs a region
-                [lhs, rhs, res] = args
-                res = linalg.sub(lhs, rhs, outs=[res])
-                return res
-            case "linalg.mul":
-                # linalg.mul needs a region
-                [lhs, rhs, res] = args
-                res = linalg.mul(lhs, rhs, outs=[res])
-                return res
-            case "linalg.div":
-                # linalg.div needs a region
-                [lhs, rhs, res] = args
-                res = linalg.div(lhs, rhs, outs=[res])
-                return res
-            case "linalg.exp":
-                # linalg.exp needs a region
-                [src, res] = args
-                res = linalg.exp(src, outs=[res])
-                return res
-            case "mlir_linalg_reduce_sum_inner_keepdims":
-                [arg] = args
-                dtype = arg.type.element_type
-                c0 = arith.constant(self.be.index_type, 0)
-                dim = tensor.dim(arg, c0)
-                init = tensor.empty(sizes=[dim], element_type=dtype)
-                neg_inf = arith.constant(self.be.f64, float(0))
-                init_filled = linalg.fill(neg_inf, outs=[init])
-                max_reduce = linalg.reduce(
-                    result=[init.type],
-                    inputs=[arg],
-                    inits=[init_filled],
-                    dimensions=[1],
-                )
-
-                body = max_reduce.owner.regions[0].blocks.append(dtype, dtype)
-                with ir.InsertionPoint(body):
-                    linalg.YieldOp(
-                        [arith.addf(body.arguments[0], body.arguments[1])]
-                    )
-
-                assert max_reduce.owner.verify()
-
-                c1 = arith.constant(self.be.index_type, 1)
-                dim1 = tensor.dim(arg, c1)
-                output = tensor.empty(sizes=(dim, dim1), element_type=dtype)
-                assert output.owner.verify()
-
-                bc = linalg.broadcast(
-                    input=max_reduce, outs=[output], dimensions=[1]
-                )
-                assert bc.verify()
-                return bc
-            case "mlir_linalg_reduce_max_inner_keepdims":
-                [arg] = args
-                dtype = arg.type.element_type
-                c0 = arith.constant(self.be.index_type, 0)
-                dim = tensor.dim(arg, c0)
-                init = tensor.empty(sizes=[dim], element_type=dtype)
-                neg_inf = arith.constant(self.be.f64, float("-inf"))
-                init_filled = linalg.fill(neg_inf, outs=[init])
-                max_reduce = linalg.reduce(
-                    result=[init.type],
-                    inputs=[arg],
-                    inits=[init_filled],
-                    dimensions=[1],
-                )
-
-                body = max_reduce.owner.regions[0].blocks.append(dtype, dtype)
-                with ir.InsertionPoint(body):
-                    linalg.YieldOp(
-                        [arith.maximumf(body.arguments[0], body.arguments[1])]
-                    )
-
-                assert max_reduce.owner.verify()
-
-                c1 = arith.constant(self.be.index_type, 1)
-                dim1 = tensor.dim(arg, c1)
-                output = tensor.empty(sizes=(dim, dim1), element_type=dtype)
-                assert output.owner.verify()
-
-                bc = linalg.broadcast(
-                    input=max_reduce, outs=[output], dimensions=[1]
-                )
-                assert bc.verify()
-                return bc
-
-                # DYN = ir.ShapedType.get_dynamic_size()
-                # expanded = tensor.expand_shape(
-                #     result=ir.RankedTensorType.get(
-                #         element_type=dtype, shape=[DYN, 1]
-                #     ),
-                #     src=max_reduce,
-                #     reassociation=[[0, 1]],
-                #     output_shape=[dim],
-                #     static_output_shape=[DYN, 1],
-                # )
-                # assert expanded.owner.verify()
-
-                # return tensor.cast(
-                #     ir.RankedTensorType.get(
-                #         element_type=dtype, shape=(DYN, DYN)
-                #     ),
-                #     expanded,
-                # )
-            case _:
-                raise NotImplementedError(f"Unhandled MLIR op {mlir_op!r}")
 
     def _handle_mlir_asm(self, mlir_op: str, resty, args):
         mlir_op = base64.urlsafe_b64decode(mlir_op.encode()).decode()
