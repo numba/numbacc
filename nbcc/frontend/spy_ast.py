@@ -102,7 +102,6 @@ class Dumper:
             "Symbol",
             {
                 "name": sym.name,
-                "color": sym.color,
                 "varkind": sym.varkind,
                 "storage": sym.storage,
             },
@@ -111,8 +110,8 @@ class Dumper:
     def _dump_node(self, node: Any, name: str, fields: list[str]) -> Node:
         attrdict: dict[str, list[Node] | Node | str] = {}
         # Add color information from VM if available
-        if self.vm and self.vm.expr_color_map:
-            color: Optional[Color] = self.vm.expr_color_map.get(node, None)
+        if self.vm and self.vm.ast_color_map:
+            color: Optional[Color] = self.vm.ast_color_map.get(node, None)
             if color:
                 attrdict["_color"] = color
 

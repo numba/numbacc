@@ -282,27 +282,42 @@ def expand_struct_type(tu: TranslationUnit, egraph):
     from nbcc.egraph.rules import (
         create_ruleset_struct__get_field__,
         create_ruleset_struct__make__,
+        create_ruleset_struct__lift__,
+        create_ruleset_struct__unlift__,
     )
 
     schedule = Ruleset(None)  # empty ruleset
     for fqn_struct, w_obj_struct in tu._structs.items():
         print(fqn_struct, w_obj_struct)
 
+        is_lifted_type = "__ll__" in w_obj_struct.dict_w
         for fqn, w_obj in tu._builtins.items():
             if fqn_struct.fullname.startswith(fqn_struct.fullname):
                 print("BUITIN", fqn)
                 subname = fqn.parts[-1].name
                 if subname == "__make__":
-                    print("Add __make__")
-                    schedule |= create_ruleset_struct__make__(w_obj)
+                    if is_lifted_type:
+                        print("Add __lift__")
+                        schedule |= create_ruleset_struct__lift__(w_obj)
+
+                    else:
+                        print("Add __make__")
+                        schedule |= create_ruleset_struct__make__(w_obj)
 
                 elif subname.startswith("__get_"):
-                    print("Add field getter")
-                    for i, k in enumerate(w_obj_struct.fields_w.keys()):
-                        if subname == f"__get_{k}__":
-                            schedule |= create_ruleset_struct__get_field__(
-                                w_obj, i
-                            )
+
+                    if is_lifted_type:
+                        assert subname == "__get___ll____"
+                        schedule |= create_ruleset_struct__unlift__(w_obj)
+                    else:
+                        print("Add field getter")
+                        for i, w_field in enumerate(
+                            w_obj_struct.iterfields_w()
+                        ):
+                            if subname == f"__get_{w_field.name}__":
+                                schedule |= create_ruleset_struct__get_field__(
+                                    w_obj, i
+                                )
 
     egraph.run(schedule.saturate())
 

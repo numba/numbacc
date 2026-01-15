@@ -2,22 +2,22 @@ from mlir import MLIR_Type, MLIR_op, MLIR_asm, MLIR_transform
 
 
 # Define dynamically sized 1D tensor in MLIR
-@blue.generic
+@blue
 def MLIR_tensor_2d(dtype: MLIR_Type):
     return MLIR_Type("tensor<?x?x{}>", dtype)
 
 
 # Define dynamically sized 1D memref in MLIR
-@blue.generic
+@blue
 def MLIR_memref_2d(dtype: MLIR_Type):
     return MLIR_Type("memref<?x?x{}>", dtype)
 
 
 # Define a Pythonic wrapper to define the binary operations
-@blue.generic
+@blue
 def make_tensor_type_2d(DTYPE: MLIR_Type):
     # Define the lower level MLIR type of the tensor
-    T = MLIR_tensor_2d[DTYPE]
+    T = MLIR_tensor_2d(DTYPE)
 
     T_index = MLIR_Type("index")
     # MLIR_asm are directly inline MLIR asm.
@@ -38,12 +38,12 @@ def make_tensor_type_2d(DTYPE: MLIR_Type):
     mlir_linalg_reduce_max_inner_keepdims = MLIR_op("mlir_linalg_reduce_max_inner_keepdims", T, (T,))
     mlir_linalg_reduce_sum_inner_keepdims = MLIR_op("mlir_linalg_reduce_sum_inner_keepdims", T, (T,))
 
-    @typelift
+    @struct
     class TensorType:
         __ll__: T  # The low-level type is the MLIR tensor
 
         def __new__(value: T) -> TensorType:
-            return TensorType.__lift__(value)
+            return TensorType.__make__(value)
 
         def __add__(self: TensorType, other: TensorType) -> TensorType:
             lhs = self.__ll__
@@ -118,37 +118,44 @@ def make_tensor_type_2d(DTYPE: MLIR_Type):
 
     return TensorType
 
+@blue
+def exported() -> None:
 
-# Alias for types
-F64 = MLIR_Type("f64")
-MemRefF64 = MLIR_memref_2d[F64]
-TensorF64 = make_tensor_type_2d[F64]
+    # Alias for types
+    F64 = MLIR_Type("f64")
+    MemRefF64 = MLIR_memref_2d(F64)
+    TensorF64 = make_tensor_type_2d(F64)
 
-# Define conversion tensor <---> buffer
-# Note the tensor type is the wrapped Pythonic class
-to_tensor = MLIR_asm(
-    "bufferization.to_tensor {restrict}", TensorF64, (MemRefF64,)
-)
-to_memref = MLIR_asm("bufferization.to_buffer", MemRefF64, (TensorF64,))
-bottom = MLIR_Type("()")
-materialize_in_destination = MLIR_asm(
-    "bufferization.materialize_in_destination {restrict,writable}",
-    bottom,
-    (TensorF64, MemRefF64),
-)
+    # Define conversion tensor <---> buffer
+    # Note the tensor type is the wrapped Pythonic class
+    to_tensor = MLIR_asm(
+        "bufferization.to_tensor {restrict}", TensorF64, (MemRefF64,)
+    )
+    to_memref = MLIR_asm("bufferization.to_buffer", MemRefF64, (TensorF64,))
+    bottom = MLIR_Type("()")
+    materialize_in_destination = MLIR_asm(
+        "bufferization.materialize_in_destination {restrict,writable}",
+        bottom,
+        (TensorF64, MemRefF64),
+    )
 
 
-def export_softmax(a: MemRefF64) -> MemRefF64:
-    ta = to_tensor(a)
+    def export_softmax(a: MemRefF64) -> MemRefF64:
+        ta = to_tensor(a)
 
-    exp_x = (ta - ta.max_inner()).exp()
-    tc = exp_x / exp_x.sum_inner()
+        exp_x = (ta - ta.max_inner()).exp()
+        tc = exp_x / exp_x.sum_inner()
 
-    c = to_memref(tc)
-    return c
+        c = to_memref(tc)
+        return c
 
-# TODO: This is odd because of SPY
-transformed_softmax_fused = MLIR_transform(export_softmax, ("fuse_reduce",))
+    # TODO: This is odd because of SPY
+    transformed_softmax_fused = MLIR_transform(export_softmax, ("fuse_reduce",))
 
-def export_softmax_fused(a: MemRefF64) -> MemRefF64:
-    return transformed_softmax_fused(a)
+    def export_softmax_fused(a: MemRefF64) -> MemRefF64:
+        return transformed_softmax_fused(a)
+
+    return None
+
+
+_ = exported()

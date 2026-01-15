@@ -13,6 +13,7 @@ from spy.vm.function import (
 )
 from spy.vm.member import Member
 from spy.vm.object import W_Object, W_Type, builtin_method
+from spy.vm.struct import W_StructType
 from spy.vm.registry import ModuleRegistry
 from spy.vm.str import W_Str
 from spy.vm.tuple import W_Tuple
@@ -24,10 +25,11 @@ MLIR = ModuleRegistry("mlir")
 
 
 @MLIR.builtin_type("MLIR_Type")
-class W_MLIR_Type(W_Type):
+class W_MLIR_Type(W_StructType):
     original_name: str
+    size: int
 
-    @builtin_method("__new__")
+    @builtin_method("__new__", color="blue")
     @staticmethod
     def w_new(
         vm: "SPyVM", w_name: W_Str, *w_argtypes: "W_MLIR_Type"
@@ -44,6 +46,7 @@ class W_MLIR_Type(W_Type):
         fqn = FQN(["mlir", "type", name.format(*map(fmt, w_argtypes))])
         w_type = W_MLIR_Type.from_pyclass(fqn, W_Object)
         w_type.original_name = name
+        w_type.size = 0  # Fake sizeof for SPy
         return w_type
 
     @builtin_method("__str__")

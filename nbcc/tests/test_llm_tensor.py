@@ -59,7 +59,7 @@ def test_softmax():
     with compile_lib("llm_tensor.spy", "llm_tensor.so") as libname:
         lib = CDLL(libname)
         export_function = getattr(
-            lib, "_mlir_ciface_spy_llm_tensor$export_softmax"
+            lib, "_mlir_ciface_spy_llm_tensor$exported$export_softmax"
         )
         print(export_function)
 
@@ -93,7 +93,7 @@ def test_bench_nbcc_softmax(benchmark):
     with compile_lib("llm_tensor.spy", "llm_tensor.so") as libname:
         lib = CDLL(libname)
         export_function = getattr(
-            lib, "_mlir_ciface_spy_llm_tensor$export_softmax"
+            lib, "_mlir_ciface_spy_llm_tensor$exported$export_softmax"
         )
         print(export_function)
 
@@ -129,7 +129,8 @@ def test_bench_nbcc_softmax_fused(benchmark):
         lib = CDLL(libname)
 
         export_function = getattr(
-            lib, "_mlir_ciface_spy_llm_tensor$export_softmax$transformed"
+            lib,
+            "_mlir_ciface_spy_llm_tensor$exported$export_softmax$transformed",
         )
         print(export_function)
 

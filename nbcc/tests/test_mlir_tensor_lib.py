@@ -53,7 +53,8 @@ def test_mlir_tensor_lib_add():
     with compile_lib("mlir_tensor_lib.spy", "lib_mlir_tensor.so") as libname:
         lib = CDLL(libname)
         func = getattr(
-            lib, "_mlir_ciface_spy_mlir_tensor_lib$export_tensor_f64_add"
+            lib,
+            "_mlir_ciface_spy_mlir_tensor_lib$exported$export_tensor_f64_add",
         )
         print(func)
 
@@ -80,7 +81,8 @@ def test_mlir_tensor_lib_arrayexpr():
     with compile_lib("mlir_tensor_lib.spy", "lib_mlir_tensor.so") as libname:
         lib = CDLL(libname)
         func = getattr(
-            lib, "_mlir_ciface_spy_mlir_tensor_lib$export_tensor_f64_arrayexpr"
+            lib,
+            "_mlir_ciface_spy_mlir_tensor_lib$exported$export_tensor_f64_arrayexpr",
         )
         print(func)
 
@@ -109,7 +111,8 @@ def test_mlir_tensor_lib_add_out():
     with compile_lib("mlir_tensor_lib.spy", "lib_mlir_tensor.so") as libname:
         lib = CDLL(libname)
         func = getattr(
-            lib, "_mlir_ciface_spy_mlir_tensor_lib$export_tensor_f64_add_out"
+            lib,
+            "_mlir_ciface_spy_mlir_tensor_lib$exported$export_tensor_f64_add_out",
         )
         print(func)
 
@@ -137,7 +140,7 @@ def test_mlir_tensor_lib_arrayexpr_out():
         lib = CDLL(libname)
         func = getattr(
             lib,
-            "_mlir_ciface_spy_mlir_tensor_lib$export_tensor_f64_arrayexpr_out",
+            "_mlir_ciface_spy_mlir_tensor_lib$exported$export_tensor_f64_arrayexpr_out",
         )
         print(func)
 
@@ -192,7 +195,8 @@ def test_bench_mlir_tensor_lib_add(benchmark):
     with compile_lib("mlir_tensor_lib.spy", "lib_mlir_tensor.so") as libname:
         lib = CDLL(libname)
         func = getattr(
-            lib, "_mlir_ciface_spy_mlir_tensor_lib$export_tensor_f64_add"
+            lib,
+            "_mlir_ciface_spy_mlir_tensor_lib$exported$export_tensor_f64_add",
         )
         print(func)
 
@@ -240,7 +244,8 @@ def test_bench_mlir_tensor_lib_arrayexpr(benchmark):
     with compile_lib("mlir_tensor_lib.spy", "lib_mlir_tensor.so") as libname:
         lib = CDLL(libname)
         func = getattr(
-            lib, "_mlir_ciface_spy_mlir_tensor_lib$export_tensor_f64_arrayexpr"
+            lib,
+            "_mlir_ciface_spy_mlir_tensor_lib$exported$export_tensor_f64_arrayexpr",
         )
         print(func)
 
@@ -279,7 +284,8 @@ def test_bench_mlir_tensor_lib_add_out(benchmark):
         lib = CDLL(libname)
 
         func = getattr(
-            lib, "_mlir_ciface_spy_mlir_tensor_lib$export_tensor_f64_add_out"
+            lib,
+            "_mlir_ciface_spy_mlir_tensor_lib$exported$export_tensor_f64_add_out",
         )
         print(func)
 
@@ -306,7 +312,7 @@ def test_bench_mlir_tensor_lib_arrayexpr_out(benchmark):
         lib = CDLL(libname)
         func = getattr(
             lib,
-            "_mlir_ciface_spy_mlir_tensor_lib$export_tensor_f64_arrayexpr_out",
+            "_mlir_ciface_spy_mlir_tensor_lib$exported$export_tensor_f64_arrayexpr_out",
         )
         print(func)
 

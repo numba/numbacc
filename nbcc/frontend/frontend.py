@@ -23,7 +23,7 @@ from sealir.rvsdg import internal_prefix
 from spy.fqn import FQN
 from spy.vm.function import W_ASTFunc, W_BuiltinFunc, W_FuncType, W_Func
 from spy.vm.struct import W_StructType
-from spy.vm.modules.types import W_Type, W_LiftedType
+from spy.vm.object import W_Type
 from spy.vm.vm import SPyVM
 from spy.location import Loc
 from spy.vm.module import W_Module
@@ -119,14 +119,6 @@ def frontend(filename: str, *, view: bool = False) -> TranslationUnit:
             tu.add_builtin(fqn, w_obj)
         elif isinstance(w_obj, W_StructType):
             tu.add_struct_type(fqn, w_obj)
-        # elif isinstance(w_obj, W_LiftedObject):
-        #     print("---- W_LiftedObject")
-        #     print(w_obj)
-        #     # tu.add_struct_type(fqn, w_obj)
-        elif isinstance(w_obj, W_LiftedType):
-            # tu.add_struct_type(fqn, w_obj)
-            print("---- W_LiftedType")
-            print(w_obj)
         else:
             breakpoint()
 
@@ -592,8 +584,8 @@ class ConvertToSExpr:
         match stmt:
             case Node(
                 "VarDef",
-                kind="var",
-                name=str(name),
+                kind=None,
+                name=Node("StrConst", value=str(name)),
                 type=Node(
                     "FQNConst", fqn=Node("literal", value=FQN() as type_fqn)
                 ),

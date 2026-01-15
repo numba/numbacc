@@ -222,7 +222,8 @@ class Backend(BackendInterface):
         Convert SealIR types to MLIR types for compilation.
         """
 
-        return self._dispatch_lower_type(self, fqn=FQN(ty.name), args=ty.args)
+        res = self._dispatch_lower_type(self, fqn=FQN(ty.name), args=ty.args)
+        return res
 
     @dispatchtable
     @staticmethod
@@ -420,7 +421,6 @@ class Backend(BackendInterface):
             state: "LowerStates",
             lowering_instance=None,
         ):
-            # args are already processed values
             tys = [v.type for v in args]
             struct_type = llvm.StructType.get_literal(tys)
 
@@ -430,6 +430,28 @@ class Backend(BackendInterface):
                     struct_value, v, ir.DenseI64ArrayAttr.get([i])
                 )
             return struct_value
+
+        @disp.case(builtin_op_matches("struct_lift"))
+        def _handle_struct_lift(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            [lifted] = [v for v in args]
+            return lifted
+
+        @disp.case(builtin_op_matches("struct_unlift"))
+        def _handle_struct_unlift(
+            self,
+            op_name: str,
+            args,
+            state: "LowerStates",
+            lowering_instance=None,
+        ):
+            [value] = args
+            return value
 
         @disp.case(builtin_op_matches("struct_get"))
         def _handle_struct_get(
@@ -889,6 +911,7 @@ class Lowering:
         with context, loc, constant_entry:
             cf.br([], fun.body.blocks[1])
 
+        print(fun.operation.get_asm())
         fun.operation.verify()
         return fun
 
@@ -1232,7 +1255,11 @@ class Lowering:
 
         result_types = [resty] if resty else []
         op = ir.Operation.create(opname, result_types, args, attributes=attrs)
-        op.verify()
+        try:
+            op.verify()
+        except Exception:
+            print(op.get_asm())
+            raise
         if resty:
             return op.result
 

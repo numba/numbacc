@@ -138,6 +138,14 @@ def Builtin_struct__make__(args: TermList) -> Term: ...
 
 
 @egglog.function
+def Builtin_struct__lift__(args: TermList) -> Term: ...
+
+
+@egglog.function
+def Builtin_struct__unlift__(args: TermList) -> Term: ...
+
+
+@egglog.function
 def Builtin_struct__get_field__(struct: Term, pos: egglog.i64) -> Term: ...
 
 
@@ -242,6 +250,48 @@ def create_ruleset_struct__make__(w_obj):
     ruleset_struct__make__.__name__ += fname
 
     return egglog.ruleset(ruleset_struct__make__)
+
+
+def create_ruleset_struct__lift__(w_obj):
+    fname = w_obj.fqn.fullname
+
+    def ruleset_struct__lift__(io: Term, args: TermList, call: Term):
+        yield egglog.rule(
+            call
+            == py.Py_Call(
+                io=io,
+                func=py.Py_LoadGlobal(io=_w(Term), name=fname),
+                args=args,
+            ),
+        ).then(
+            union(call.getPort(0)).with_(io),
+            union(call.getPort(1)).with_(Builtin_struct__lift__(args)),
+        )
+
+    ruleset_struct__lift__.__name__ += fname
+
+    return egglog.ruleset(ruleset_struct__lift__)
+
+
+def create_ruleset_struct__unlift__(w_obj):
+    fname = w_obj.fqn.fullname
+
+    def ruleset_struct__unlift__(io: Term, args: TermList, call: Term):
+        yield egglog.rule(
+            call
+            == py.Py_Call(
+                io=io,
+                func=py.Py_LoadGlobal(io=_w(Term), name=fname),
+                args=args,
+            ),
+        ).then(
+            union(call.getPort(0)).with_(io),
+            union(call.getPort(1)).with_(Builtin_struct__unlift__(args)),
+        )
+
+    ruleset_struct__unlift__.__name__ += fname
+
+    return egglog.ruleset(ruleset_struct__unlift__)
 
 
 def create_ruleset_struct__get_field__(w_obj, field_pos: int):

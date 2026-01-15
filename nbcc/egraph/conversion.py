@@ -81,6 +81,16 @@ class ExtendEGraphToRVSDG(_EGraphToRVSDG):
         def _(args):
             return sg.BuiltinOp(opname="struct_make", args=tuple(args))
 
+        @disp.case(op_matches("Builtin_struct__lift__"))
+        @emit_node
+        def _(args):
+            return sg.BuiltinOp(opname="struct_lift", args=tuple(args))
+
+        @disp.case(op_matches("Builtin_struct__unlift__"))
+        @emit_node
+        def _(args):
+            return sg.BuiltinOp(opname="struct_unlift", args=tuple(args))
+
         @disp.case(op_matches("Builtin_struct__get_field__"))
         @emit_node
         def _(struct, pos):

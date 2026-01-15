@@ -30,12 +30,12 @@ def make_tensor_type(DTYPE: MLIR_Type):
     mlir_linalg_add = MLIR_op("linalg.add", T, (T, T, T))
     mlir_linalg_mul = MLIR_op("linalg.mul", T, (T, T, T))
 
-    @typelift
+    @struct
     class TensorType:
         __ll__: T  # The low-level type is the MLIR tensor
 
         def __new__(value: T) -> TensorType:
-            return TensorType.__lift__(value)
+            return TensorType.__make__(value)
 
         def __add__(self: TensorType, other: TensorType) -> TensorType:
             lhs = self.__ll__
@@ -62,57 +62,64 @@ def make_tensor_type(DTYPE: MLIR_Type):
     return TensorType
 
 
-# Alias for types
-F64 = MLIR_Type("f64")
-MemRefF64 = MLIR_memref_1d[F64]
-TensorF64 = make_tensor_type[F64]
+@blue
+def exported() -> None:
+    # Alias for types
+    F64 = MLIR_Type("f64")
+    MemRefF64 = MLIR_memref_1d[F64]
+    TensorF64 = make_tensor_type[F64]
 
-# Define conversion tensor <---> buffer
-# Note the tensor type is the wrapped Pythonic class
-to_tensor = MLIR_asm(
-    "bufferization.to_tensor {restrict}", TensorF64, (MemRefF64,)
-)
-to_memref = MLIR_asm("bufferization.to_buffer", MemRefF64, (TensorF64,))
-bottom = MLIR_Type("()")
-materialize_in_destination = MLIR_asm(
-    "bufferization.materialize_in_destination {restrict,writable}",
-    bottom,
-    (TensorF64, MemRefF64),
-)
-
-
-def export_tensor_f64_add(a: MemRefF64, b: MemRefF64) -> MemRefF64:
-    ta = to_tensor(a)
-    tb = to_tensor(b)
-    tc = ta + tb
-    c = to_memref(tc)
-    return c
+    # Define conversion tensor <---> buffer
+    # Note the tensor type is the wrapped Pythonic class
+    to_tensor = MLIR_asm(
+        "bufferization.to_tensor {restrict}", TensorF64, (MemRefF64,)
+    )
+    to_memref = MLIR_asm("bufferization.to_buffer", MemRefF64, (TensorF64,))
+    bottom = MLIR_Type("()")
+    materialize_in_destination = MLIR_asm(
+        "bufferization.materialize_in_destination {restrict,writable}",
+        bottom,
+        (TensorF64, MemRefF64),
+    )
 
 
-def export_tensor_f64_add_out(
-    a: MemRefF64, b: MemRefF64, out: MemRefF64
-) -> None:
-    ta = to_tensor(a)
-    tb = to_tensor(b)
-    tc = ta + tb
-    materialize_in_destination(tc, out)
+    def export_tensor_f64_add(a: MemRefF64, b: MemRefF64) -> MemRefF64:
+        ta = to_tensor(a)
+        tb = to_tensor(b)
+        tc = ta + tb
+        c = to_memref(tc)
+        return c
 
 
-def export_tensor_f64_arrayexpr(
-    a: MemRefF64, b: MemRefF64, c: MemRefF64
-) -> MemRefF64:
-    ta = to_tensor(a)
-    tb = to_tensor(b)
-    tc = to_tensor(c)
-    tres = (ta + tb) * (tc + ta)
-    return to_memref(tres)
+    def export_tensor_f64_add_out(
+        a: MemRefF64, b: MemRefF64, out: MemRefF64
+    ) -> None:
+        ta = to_tensor(a)
+        tb = to_tensor(b)
+        tc = ta + tb
+        materialize_in_destination(tc, out)
 
 
-def export_tensor_f64_arrayexpr_out(
-    a: MemRefF64, b: MemRefF64, c: MemRefF64, out: MemRefF64
-) -> None:
-    ta = to_tensor(a)
-    tb = to_tensor(b)
-    tc = to_tensor(c)
-    tres = (ta + tb) * (tc + ta)
-    materialize_in_destination(tres, out)
+    def export_tensor_f64_arrayexpr(
+        a: MemRefF64, b: MemRefF64, c: MemRefF64
+    ) -> MemRefF64:
+        ta = to_tensor(a)
+        tb = to_tensor(b)
+        tc = to_tensor(c)
+        tres = (ta + tb) * (tc + ta)
+        return to_memref(tres)
+
+
+    def export_tensor_f64_arrayexpr_out(
+        a: MemRefF64, b: MemRefF64, c: MemRefF64, out: MemRefF64
+    ) -> None:
+        ta = to_tensor(a)
+        tb = to_tensor(b)
+        tc = to_tensor(c)
+        tres = (ta + tb) * (tc + ta)
+        materialize_in_destination(tres, out)
+
+    return None
+
+
+_ = exported()
