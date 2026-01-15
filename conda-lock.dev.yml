@@ -13,8 +13,8 @@
 version: 1
 metadata:
   content_hash:
-    osx-arm64: 4756ad92437d7d3bb10ca00909b2cbb8079566c911869fee32c2ed9b89fc6115
-    linux-64: 20b0716a884a00d39a33e06cf19aab15e7df76ac4ca186da3efd0375d1c5d1fa
+    osx-arm64: 28162ce1aa93d1627d6ced7c08925a8e4030c276ec64b4fc3085b61088673157
+    linux-64: 9a2e5917900c23d8a23509bb614e4c7bfbae1d1c7bf238427d59ec9cd362e4af
   channels:
   - url: defaults
     used_env_vars: []
@@ -27,7 +27,7 @@ metadata:
   - devtools_environment.yml
   - mlir21_environment.yml
   time_metadata:
-    created_at: '2026-01-12T21:26:09Z'
+    created_at: '2026-01-15T16:06:20Z'
 package:
 - name: _libgcc_mutex
   version: '0.1'
@@ -370,6 +370,28 @@ package:
   hash:
     md5: 08fe0e3fb03a778d611b23f4cf1bf4d3
     sha256: e504471ee335d77d71ecd79222d54fb85c56c0329cd81f7070a8b09bf8b7118a
+  category: main
+  optional: false
+- name: blas
+  version: '1.0'
+  manager: conda
+  platform: linux-64
+  dependencies: {}
+  url: https://repo.anaconda.com/pkgs/main/linux-64/blas-1.0-openblas.conda
+  hash:
+    md5: 9ddfcaef10d79366c90128f5dc444be8
+    sha256: c85b5d0a336b5be0f415c71fd7fe2eca59e09f42221bfa684aafef5510ba5487
+  category: main
+  optional: false
+- name: blas
+  version: '1.0'
+  manager: conda
+  platform: osx-arm64
+  dependencies: {}
+  url: https://repo.anaconda.com/pkgs/main/osx-arm64/blas-1.0-openblas.conda
+  hash:
+    md5: 082557147829a904fa986cb86dd1e45a
+    sha256: 4fd46cbbcfd8eea36f4b5eee916c0b973d3e9cf19931b1e046930fa087798752
   category: main
   optional: false
 - name: bleach
@@ -1057,26 +1079,28 @@ package:
   category: main
   optional: false
 - name: fribidi
-  version: 1.0.10
+  version: 1.0.16
   manager: conda
   platform: linux-64
   dependencies:
-    libgcc-ng: '>=7.3.0'
-  url: https://repo.anaconda.com/pkgs/main/linux-64/fribidi-1.0.10-h7b6447c_0.conda
+    __glibc: '>=2.28,<3.0.a0'
+    libgcc: '>=14'
+  url: https://repo.anaconda.com/pkgs/main/linux-64/fribidi-1.0.16-h9fb5f84_0.conda
   hash:
-    md5: 1b4851703971b3d43acdcc9c72777575
-    sha256: 64c55b1e235fc5d56e4e0b5b1cec9c2500c404e71253a90e6df59f0a5a669bdb
+    md5: 76c71713d8c93715c15a9489992f70b3
+    sha256: f994247c2e72391fa7c4635a0055c825e00e2df94400150724efbf258e875191
   category: main
   optional: false
 - name: fribidi
-  version: 1.0.10
+  version: 1.0.16
   manager: conda
   platform: osx-arm64
-  dependencies: {}
-  url: https://repo.anaconda.com/pkgs/main/osx-arm64/fribidi-1.0.10-h1a28f6b_0.conda
+  dependencies:
+    __osx: '>=12.1'
+  url: https://repo.anaconda.com/pkgs/main/osx-arm64/fribidi-1.0.16-h8859324_0.conda
   hash:
-    md5: 6a595fe73caeaf80f2d98537f8d9cea5
-    sha256: 919c48a1dbe3fa5e26480f9cdd0f976c44fef5a7dee43e971e9cceaf4dd21a26
+    md5: efcd8d4b389332fa1f2d8a4db7e05fa3
+    sha256: 5787938d48d1b0a01c5d3bf85e806e5d189c64fc797440a2f6d980748311f509
   category: main
   optional: false
 - name: gdk-pixbuf
@@ -2075,37 +2099,37 @@ package:
   category: main
   optional: false
 - name: jupyter_client
-  version: 8.6.3
+  version: 8.8.0
   manager: conda
   platform: linux-64
   dependencies:
-    jupyter_core: '>=4.12,!=5.0.*'
+    jupyter_core: '>=5.1'
     python: '>=3.12,<3.13.0a0'
     python-dateutil: '>=2.8.2'
-    pyzmq: '>=23.0'
-    tornado: '>=6.2'
+    pyzmq: '>=25.0'
+    tornado: '>=6.4.1'
     traitlets: '>=5.3'
-  url: https://repo.anaconda.com/pkgs/main/linux-64/jupyter_client-8.6.3-py312h06a4308_1.conda
+  url: https://repo.anaconda.com/pkgs/main/linux-64/jupyter_client-8.8.0-py312h06a4308_0.conda
   hash:
-    md5: ecbe37147654d59a85176a375787af44
-    sha256: ea8c0804066a737983fe88ac5a2277e7ed63cec9ae5f1a36c9fb34632794231a
+    md5: cfa9791392e371c54254f984cec2f948
+    sha256: 91873c270f23dae4e73f45b4a6e04cc659f3ea77c90ee794705237485b297dd8
   category: main
   optional: false
 - name: jupyter_client
-  version: 8.6.3
+  version: 8.8.0
   manager: conda
   platform: osx-arm64
   dependencies:
-    jupyter_core: '>=4.12,!=5.0.*'
+    jupyter_core: '>=5.1'
     python: '>=3.12,<3.13.0a0'
     python-dateutil: '>=2.8.2'
-    pyzmq: '>=23.0'
-    tornado: '>=6.2'
+    pyzmq: '>=25.0'
+    tornado: '>=6.4.1'
     traitlets: '>=5.3'
-  url: https://repo.anaconda.com/pkgs/main/osx-arm64/jupyter_client-8.6.3-py312hca03da5_1.conda
+  url: https://repo.anaconda.com/pkgs/main/osx-arm64/jupyter_client-8.8.0-py312hca03da5_0.conda
   hash:
-    md5: 91e220639b45f04252aa166e15284a0d
-    sha256: d5726a11eb77f50f0de16fcef92fa6f3f38e4313d713b0bdf619a1c1b67e40f7
+    md5: a073b403f1c14485e993d52e6ffb8cb9
+    sha256: f8aeb95d48919b6bf5daea670fb785fc94d0b9e7bf3a1e8ce8ae647f589397c7
   category: main
   optional: false
 - name: jupyter_console
@@ -2773,6 +2797,55 @@ package:
     sha256: f1b92b50605e484b8cbb89dc06045fd07e04a3332a936eca829657a8c642f734
   category: main
   optional: false
+- name: libgfortran
+  version: 15.2.0
+  manager: conda
+  platform: linux-64
+  dependencies:
+    libgfortran5: 15.2.0
+  url: https://repo.anaconda.com/pkgs/main/linux-64/libgfortran-15.2.0-h166f726_7.conda
+  hash:
+    md5: 52c23eb64400224f6a46c7439bbbddce
+    sha256: 53cd6f64e62a7fa98cc52f6e5252c69b4de50b48a2b9e5daa7229bba1623a2cd
+  category: main
+  optional: false
+- name: libgfortran-ng
+  version: 15.2.0
+  manager: conda
+  platform: linux-64
+  dependencies:
+    libgfortran: 15.2.0
+  url: https://repo.anaconda.com/pkgs/main/linux-64/libgfortran-ng-15.2.0-h166f726_7.conda
+  hash:
+    md5: 7ec53b6e26052cbd81a768da1c037c0e
+    sha256: 263be69d7f8166950a4695ec1c9be8b80de2ad5ac9d47b5c3cd83c9e923bb8e4
+  category: main
+  optional: false
+- name: libgfortran5
+  version: 15.2.0
+  manager: conda
+  platform: linux-64
+  dependencies:
+    __glibc: '>=2.28,<3.0.a0'
+    libgcc: '>=15.2.0'
+  url: https://repo.anaconda.com/pkgs/main/linux-64/libgfortran5-15.2.0-hc633d37_7.conda
+  hash:
+    md5: 78b0f996039e81b01b72b06005bcf4d5
+    sha256: 741b41e34cbcf277914300a9ffbb49c7f3c6e3883ae07e1cc344e9dd2c4f20ac
+  category: main
+  optional: false
+- name: libgfortran5
+  version: 15.2.0
+  manager: conda
+  platform: osx-arm64
+  dependencies:
+    llvm-openmp: '>=8.0.0'
+  url: https://repo.anaconda.com/pkgs/main/osx-arm64/libgfortran5-15.2.0-hb654fa1_1.conda
+  hash:
+    md5: f8c6fe3676f16600a1f4a3acd37d9380
+    sha256: 6cb3c60701a6287b77fa48525d173e24584ff4a75cbb08adb0d6c5912c47b559
+  category: main
+  optional: false
 - name: libglib
   version: 2.84.4
   manager: conda
@@ -2925,6 +2998,34 @@ package:
   hash:
     md5: 55e3f1b0c2a70454cdf1a5d64fb44752
     sha256: 34fbadc1e86ee37b19b98799b4f806d8be205e9c0220bdb76598f0295961812e
+  category: main
+  optional: false
+- name: libopenblas
+  version: 0.3.30
+  manager: conda
+  platform: linux-64
+  dependencies:
+    __glibc: '>=2.28,<3.0.a0'
+    libgcc-ng: '>=11.2.0'
+    libgfortran-ng: ''
+    libgfortran5: '>=11.2.0'
+  url: https://repo.anaconda.com/pkgs/main/linux-64/libopenblas-0.3.30-h46f56fc_2.conda
+  hash:
+    md5: d034d1566a03e464b350eea50a39fe40
+    sha256: d2e0014d191a8328d0ed44d1d3ecff8340edce7c08ee7b1602c0e27a70d135af
+  category: main
+  optional: false
+- name: libopenblas
+  version: 0.3.30
+  manager: conda
+  platform: osx-arm64
+  dependencies:
+    __osx: '>=12.1'
+    libgfortran5: '>=11.2.0'
+  url: https://repo.anaconda.com/pkgs/main/osx-arm64/libopenblas-0.3.30-hf2bb037_2.conda
+  hash:
+    md5: 407dd608e0c4cfc7c3e22ce632c18412
+    sha256: 711ef41c4adcab224d1f9e5382d92ea96c2ba37276db371c894fdfc822693bff
   category: main
   optional: false
 - name: libopenjpeg
@@ -3590,6 +3691,41 @@ package:
     sha256: 8a9e8d3550ddc890a2542a6ec32469f6d8bc1c26497367c86efb708285121ae8
   category: main
   optional: false
+- name: mypy
+  version: 1.17.1
+  manager: conda
+  platform: linux-64
+  dependencies:
+    __glibc: '>=2.28,<3.0.a0'
+    libgcc-ng: '>=11.2.0'
+    mypy_extensions: '>=1.0.0'
+    pathspec: '>=0.9.0'
+    psutil: '>=4.0'
+    python: '>=3.12,<3.13.0a0'
+    typing-extensions: '>=4.6.0'
+  url: https://repo.anaconda.com/pkgs/main/linux-64/mypy-1.17.1-py312hee96239_1.conda
+  hash:
+    md5: 5628f0455737e336d4ee193202330966
+    sha256: 1c256370ec0d19c0ff643dc7a235f6f9330b3185b3c44b88c066d9af6091b88f
+  category: main
+  optional: false
+- name: mypy
+  version: 1.17.1
+  manager: conda
+  platform: osx-arm64
+  dependencies:
+    __osx: '>=12.1'
+    mypy_extensions: '>=1.0.0'
+    pathspec: '>=0.9.0'
+    psutil: '>=4.0'
+    python: '>=3.12,<3.13.0a0'
+    typing-extensions: '>=4.6.0'
+  url: https://repo.anaconda.com/pkgs/main/osx-arm64/mypy-1.17.1-py312haa24f5a_1.conda
+  hash:
+    md5: 228fe5ecf160f3194e0c6e1ae8bab380
+    sha256: dacd6b69c91df6d5bbce7d56739024d01610c138a7ddf46e8bf1673f92c275e1
+  category: main
+  optional: false
 - name: mypy_extensions
   version: 1.0.0
   manager: conda
@@ -3982,6 +4118,74 @@ package:
   hash:
     md5: 9d457d8e5a41e113d506a6b6bc3fc284
     sha256: 7018c202ab013981d9ef34bc3f43e6d245727ff08e35c30cde06e0a1ba10330e
+  category: main
+  optional: false
+- name: numpy
+  version: 2.4.1
+  manager: conda
+  platform: linux-64
+  dependencies:
+    __glibc: '>=2.28,<3.0.a0'
+    blas: '*'
+    libgcc: '>=14'
+    libopenblas: '>=0.3.30,<1.0a0'
+    libstdcxx: '>=14'
+    numpy-base: 2.4.1
+    python: '>=3.12,<3.13.0a0'
+  url: https://repo.anaconda.com/pkgs/main/linux-64/numpy-2.4.1-py312h35d6838_0.conda
+  hash:
+    md5: 992d290ba3f63772f2a9a7782ccbcfe6
+    sha256: ada0b3f56d414bbeca57963800759423c85554be03aa5241920f5def5c29aa0b
+  category: main
+  optional: false
+- name: numpy
+  version: 2.4.1
+  manager: conda
+  platform: osx-arm64
+  dependencies:
+    __osx: '>=12.1'
+    blas: '*'
+    libcxx: '>=17'
+    libopenblas: '>=0.3.30,<1.0a0'
+    numpy-base: 2.4.1
+    python: '>=3.12,<3.13.0a0'
+  url: https://repo.anaconda.com/pkgs/main/osx-arm64/numpy-2.4.1-py312h4bb6f22_0.conda
+  hash:
+    md5: 61f27f338439b51014e86fbb5f08908e
+    sha256: 4788d1c87a48943614799620ab1217658bc6d2ef82f678e6fcfdd718f53d7837
+  category: main
+  optional: false
+- name: numpy-base
+  version: 2.4.1
+  manager: conda
+  platform: linux-64
+  dependencies:
+    __glibc: '>=2.28,<3.0.a0'
+    blas: '*'
+    libgcc: '>=14'
+    libopenblas: '>=0.3.30,<1.0a0'
+    libstdcxx: '>=14'
+    python: '>=3.12,<3.13.0a0'
+  url: https://repo.anaconda.com/pkgs/main/linux-64/numpy-base-2.4.1-py312h4bc27c9_0.conda
+  hash:
+    md5: e6c95204110eeeb4ed30f682050b3d50
+    sha256: fed50dbd804e0777eb4fe731ea524431ca686c3236e66a8f94ad282b5a630278
+  category: main
+  optional: false
+- name: numpy-base
+  version: 2.4.1
+  manager: conda
+  platform: osx-arm64
+  dependencies:
+    __osx: '>=12.1'
+    blas: '*'
+    libcxx: '>=17'
+    libopenblas: '>=0.3.30,<1.0a0'
+    python: '>=3.12,<3.13.0a0'
+  url: https://repo.anaconda.com/pkgs/main/osx-arm64/numpy-base-2.4.1-py312h23175f9_0.conda
+  hash:
+    md5: 106964828f4d005deb8371864b0afa9d
+    sha256: b185f7a23e892a142eeb5f4f341068f1ca6c2d9a3adbe23470daedfa258917e7
   category: main
   optional: false
 - name: openjpeg

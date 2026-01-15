@@ -6,6 +6,8 @@ dependencies:
   - conda-forge::pygal  # for pytest-benchmark to render SVG histograms
   - jupyter
   - notebook
+  - mypy
+  - numpy
   - pip
   - pip:
     - numba-scfg 
