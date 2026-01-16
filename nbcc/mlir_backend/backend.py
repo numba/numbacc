@@ -260,7 +260,9 @@ class Backend(BackendInterface):
             is_lifted_type = len(fields) == 1 and fields[0].name == "__ll__"
             if is_lifted_type:
                 [ll_field] = fields
-                return self._dispatch_lower_type(self, fqn=ll_field.w_T.fqn, args=())
+                return self._dispatch_lower_type(
+                    self, fqn=ll_field.w_T.fqn, args=()
+                )
             else:
                 TODO("regular non lifted struct type should go here")
                 raise NotImplementedError("TODO")
@@ -906,11 +908,6 @@ class Lowering:
         """
         match expr:
             case rg.Func(args=args, body=body, fname=fqn):  # type: ignore[misc]
-                TODO("XXX: no way to get return type")
-                # [fqn_ti] = self.mdmap.lookup_typeinfo_by_fqn(fqn)
-                # resty = fqn_ti.type_expr.args[0]
-                # print(fqn)
-                # print(resty.name)
                 func_args = args
                 names = {
                     argspec.name: state.function_block.arguments[i]
@@ -1139,14 +1136,6 @@ class Lowering:
             case sg.CallFQN(
                 fqn=sg.FQN() as callee_fqn, io=io_val, args=args_vals
             ):
-
-                if callee_fqn.fullname.endswith(
-                    "::__lift__"
-                ) or callee_fqn.fullname.endswith("::__unlift__"):
-                    TODO("XXX: lift/unlift lowering is a hack")
-                    [val] = args_vals
-                    return [(yield io_val), (yield val)]
-
                 mdmap = self.mdmap
 
                 [callee_ti] = mdmap.lookup_typeinfo(callee_fqn)
