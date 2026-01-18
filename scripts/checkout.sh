@@ -1,9 +1,10 @@
 set -xe
-# Check if target directory already exists
+# Usage: checkout.sh <repo-url> <branch-or-commit> <target-dir>
+
 if [ -d "$3" ]; then
-    echo "Directory $3 already exists. Checking out branch $2..."
+    echo "Directory $3 already exists. Checking out $2..."
     cd "$3"
-    git fetch origin 
+    git fetch origin
     if git show-ref --verify --quiet "refs/remotes/origin/$2"; then
         # It's a branch
         git checkout -B "$2" "origin/$2"
@@ -13,6 +14,8 @@ if [ -d "$3" ]; then
         git checkout "$2"
     fi
 else
-    echo "Cloning repository to $3 with branch $2..."
-    git clone $1 --revision="$2" --depth=1 "$3"
+    echo "Cloning repository to $3..."
+    git clone "$1" "$3"
+    cd "$3"
+    git checkout "$2"
 fi
