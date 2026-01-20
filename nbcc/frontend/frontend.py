@@ -632,6 +632,8 @@ class ConvertToSExpr:
                 ret = self.emit_expression(stmt.value)
                 ctx.store_local("__scfg_return_value__", ret)
                 return ret
+            case Node("Pass"):
+                return ctx.get_io()
             case _:
                 raise NotImplementedError(stmt)
 

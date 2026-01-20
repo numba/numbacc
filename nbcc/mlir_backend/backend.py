@@ -86,6 +86,17 @@ class BackendInterface(ABC):
     backend implementations while maintaining MLIR-specific typing.
     """
 
+    @classmethod
+    @abstractmethod
+    def create(cls, tu: TranslationUnit) -> BackendInterface:
+        raise NotImplementedError
+
+    @abstractmethod
+    def make_module(self, module_name: str) -> Any: ...
+
+    @abstractmethod
+    def run_passes(self, module: Any, transforms: Any) -> Any: ...
+
     # Type Constants - Properties for clean access pattern
     @property
     @abstractmethod
@@ -122,11 +133,6 @@ class BackendInterface(ABC):
     def io_type(self) -> ir.Type:
         """IO token type for sequencing."""
 
-    @property
-    @abstractmethod
-    def llvm_ptr(self) -> ir.Type:
-        """LLVM pointer type."""
-
     # Core Methods
     @abstractmethod
     def lower_type(self, ty) -> ir.Type:
@@ -151,6 +157,9 @@ class Backend(BackendInterface):
     _tu: TranslationUnit
     _context: ir.Context
 
+    Location = ir.Location
+    InsertionPoint = ir.InsertionPoint
+
     def __init__(self, tu: TranslationUnit):
         self._tu = tu
         self._context = context = ir.Context()
@@ -167,6 +176,17 @@ class Backend(BackendInterface):
             self._io_type = ir.IntegerType.get_signless(1, context=context)
             self._llvm_ptr = ir.Type.parse("!llvm.ptr")
             self._none_type = ir.Type.parse("!llvm.struct<()>")
+
+    @classmethod
+    def create(cls, tu: TranslationUnit) -> Backend:
+        return cls(tu)
+
+    def finalize_const_block(self, const_entry, target):
+        # Use a break to jump from the constant block to the function block.
+        # note that this is being inserted at end of constant block after the
+        # Function construction when all the constants have been initialized.
+        with const_entry:
+            cf.br([], target)
 
     # Property accessors for BackendInterface compliance
     # Note: These properties expose existing instance attributes created in __init__
@@ -203,6 +223,46 @@ class Backend(BackendInterface):
     @property
     def llvm_ptr(self) -> ir.Type:
         return self._llvm_ptr
+
+    def initialize_io(self):
+        return arith.constant(self.io_type, 0)
+
+    def create_none(self):
+        return llvm.mlir_zero(self.none_type)
+
+    def create_return(self, values):
+        return func.ReturnOp(values)
+
+    def create_function(self, function_name: str, input_types, output_types):
+        # Constuct a function that emits a callable C-interface.
+        fnty = func.FunctionType.get(input_types, output_types)
+        fqn = FQN(function_name)
+        if fqn.symbol_name == "main":
+            TODO("XXX: hack main() function handling")
+            export_name = "main"
+        else:
+            export_name = fqn.c_name
+        TODO("TODO: is exporting logic")
+        is_exporting = export_name == "main" or fqn.symbol_name.startswith(
+            "export_"
+        )
+        fun = func.FuncOp(
+            export_name,
+            fnty,
+            visibility=("public" if is_exporting else "private"),
+        )
+        if is_exporting:
+            fun.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
+
+        # Define two blocks within the function, a constant block to
+        # define all the constants and a function block for the
+        # actual content. This is done to prevent non-dominant use
+        # of constants. (Use of a constant when declaration is done in
+        # a region that isn't initialized.)
+        const_block = fun.add_entry_block()
+        fun.body.blocks.append(*[], arg_locs=None)
+        func_block = fun.body.blocks[1]
+        return fun, const_block, func_block
 
     def lower_type(self, ty: sg.TypeExpr) -> ir.Type:
         """Type Lowering
@@ -541,7 +601,7 @@ class Backend(BackendInterface):
             )
 
             body = max_reduce.owner.regions[0].blocks.append(dtype, dtype)
-            with ir.InsertionPoint(body):
+            with self.InsertionPoint(body):
                 linalg.YieldOp(
                     [arith.addf(body.arguments[0], body.arguments[1])]
                 )
@@ -579,7 +639,7 @@ class Backend(BackendInterface):
             )
 
             body = max_reduce.owner.regions[0].blocks.append(dtype, dtype)
-            with ir.InsertionPoint(body):
+            with self.InsertionPoint(body):
                 linalg.YieldOp(
                     [arith.maximumf(body.arguments[0], body.arguments[1])]
                 )
@@ -807,13 +867,15 @@ class Lowering:
         and data flow constructs.
         """
         context = self.be.context
-        self.loc = loc = ir.Location.name(f"{self}.lower()", context=context)
+        self.loc = loc = self.be.Location.name(
+            f"{self}.lower()", context=context
+        )
         module = self.module
 
         function_name = root.fname
         # Get the module body pointer so we can insert content into the
         # module.
-        self.module_body = module_body = ir.InsertionPoint(module.body)
+        self.module_body = module_body = self.be.InsertionPoint(module.body)
         # Convert SealIR types to MLIR types.
 
         assert isinstance(root.args, rg.Args)
@@ -823,38 +885,13 @@ class Lowering:
         output_types = self.get_return_types(root)
 
         with context, loc, module_body:
-            # Constuct a function that emits a callable C-interface.
-            fnty = func.FunctionType.get(input_types, output_types)
-            fqn = FQN(function_name)
-            if fqn.symbol_name == "main":
-                TODO("XXX: hack main() function handling")
-                export_name = "main"
-            else:
-                export_name = fqn.c_name
-            TODO("TODO: is exporting logic")
-            is_exporting = export_name == "main" or fqn.symbol_name.startswith(
-                "export_"
+            fun, const_block, func_block = self.be.create_function(
+                function_name, input_types, output_types
             )
-            fun = func.FuncOp(
-                export_name,
-                fnty,
-                visibility=("public" if is_exporting else "private"),
-            )
-            if is_exporting:
-                fun.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
-
-            # Define two blocks within the function, a constant block to
-            # define all the constants and a function block for the
-            # actual content. This is done to prevent non-dominant use
-            # of constants. (Use of a constant when declaration is done in
-            # a region that isn't initialized.)
-            const_block = fun.add_entry_block()
-            fun.body.blocks.append(*[], arg_locs=None)
-            func_block = fun.body.blocks[1]
 
         # Define entry points of both the blocks.
-        constant_entry = ir.InsertionPoint(const_block)
-        function_entry = ir.InsertionPoint(func_block)
+        constant_entry = self.be.InsertionPoint(const_block)
+        function_entry = self.be.InsertionPoint(func_block)
 
         region_args = []
 
@@ -887,11 +924,8 @@ class Lowering:
                 ),
             )
 
-        # Use a break to jump from the constant block to the function block.
-        # note that this is being inserted at end of constant block after the
-        # Function construction when all the constants have been initialized.
-        with context, loc, constant_entry:
-            cf.br([], fun.body.blocks[1])
+        with context, loc:
+            self.be.finalize_const_block(constant_entry, func_block)
 
         print(fun.operation.get_asm())
         fun.operation.verify()
@@ -919,7 +953,7 @@ class Lowering:
                 argvalues = []
                 for k in region_begin.inports:
                     if k == internal_prefix("io"):
-                        v = arith.constant(self.be.io_type, 0)
+                        v = self.be.initialize_io()
                     else:
                         v = names[k]
                     argvalues.append(v)
@@ -932,16 +966,18 @@ class Lowering:
                 portnames = [cast(rg.Port, p).name for p in func_body_ports]
 
                 if self.get_return_types(expr) == []:
-                    func.ReturnOp([])
+                    # func.ReturnOp([])
+                    self.be.create_return([])
                     return
                 try:
                     retidx = portnames.index(internal_prefix("ret"))
                 except ValueError as e:
                     assert "!ret" in str(e)
-                    func.ReturnOp([])
+                    self.be.create_return([])
                 else:
                     retval = outs[retidx]
-                    func.ReturnOp([self._cast_return_value(retval)])
+                    # func.ReturnOp([self._cast_return_value(retval)])
+                    self.be.create_return([self._cast_return_value(retval)])
 
             case rg.RegionBegin(inports=ins):
                 # Convert ins from tuple to list
@@ -1085,11 +1121,11 @@ class Lowering:
 
                 with state.push(operand_vals):
                     # Make a detached module to temporarily house the blocks
-                    with ir.InsertionPoint(if_op.then_block):
+                    with self.be.InsertionPoint(if_op.then_block):
                         value_body = yield body
                         scf.YieldOp([x for x in value_body])
 
-                    with ir.InsertionPoint(if_op.else_block):
+                    with self.be.InsertionPoint(if_op.else_block):
                         value_else = yield orelse
                         scf.YieldOp([x for x in value_else])
 
@@ -1116,14 +1152,14 @@ class Lowering:
                 new_ops = before_block.arguments
 
                 # Before Region
-                with ir.InsertionPoint(before_block), state.push(new_ops):
+                with self.be.InsertionPoint(before_block), state.push(new_ops):
                     values = yield body
                     scf.ConditionOp(
                         args=[val for val in values[1:]], condition=values[0]
                     )
 
                 # After Region
-                with ir.InsertionPoint(after_block):
+                with self.be.InsertionPoint(after_block):
                     scf.YieldOp(after_block.arguments)
 
                 while_op_res = scf._get_op_results_or_values(while_op)
@@ -1194,7 +1230,7 @@ class Lowering:
                 call = func.call([resty], c_name, lowered_args)
                 return [io_val, call]
             case rg.PyNone():
-                return llvm.mlir_zero(self.be.none_type)
+                return self.be.create_none()
             case _:
                 raise NotImplementedError(
                     expr, type(expr), ase.as_tuple(expr, depth=3)

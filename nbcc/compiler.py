@@ -6,7 +6,7 @@ import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 from pprint import pprint
-from typing import cast, Sequence
+from typing import cast, Sequence, Type
 
 import sealir.rvsdg.grammar as rg
 import spy
@@ -24,7 +24,12 @@ from nbcc.egraph.conversion import ExtendEGraphToRVSDG
 from nbcc.egraph.rules import egraph_convert_metadata, egraph_optimize
 from nbcc.frontend import TranslationUnit, frontend
 from nbcc.frontend.grammar import IRTag, TypeInfo
-from nbcc.mlir_backend.backend import Backend, Lowering, MDMap
+from nbcc.mlir_backend.backend import (
+    Backend,
+    Lowering,
+    MDMap,
+    BackendInterface,
+)
 
 logging.disable(logging.INFO)
 
@@ -39,13 +44,15 @@ def compile_shared_lib(path: str, out_path: str) -> None:
     make_shared(module, out_path)
 
 
-def compile_to_mlir(path: str) -> ir.Module:
+def compile_to_mlir(
+    path: str, be_type: Type[BackendInterface] = Backend
+) -> ir.Module:
     tu = frontend(path)
 
     func_map: dict[str, rg.Func]
     func_map, mdlist = middle_end(tu)
     pprint(func_map)
-    be = Backend(tu)
+    be = be_type.create(tu)
     mdmap = MDMap()
     mdmap.load(mdlist)
 
@@ -64,9 +71,6 @@ def compile_to_mlir(path: str) -> ir.Module:
             transform_map[fn_op.name.value] = [v for k, v in mlir_transforms]
 
     lowering.module.operation.verify()
-
-    print("-------------")
-    lowering.module.dump()
 
     print("=============")
     print(lowering.module.operation.get_asm())

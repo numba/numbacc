@@ -1,0 +1,20 @@
+# Test this with:
+#   python -m nbcc.cli mlir tile_example.spy --backend=cutile
+from mlir import MLIR_Type, MLIR_op, MLIR_asm
+
+
+
+@blue
+def exported() -> None:
+    # Alias for types
+    F64 = MLIR_Type("f64")
+    PtrF64 = MLIR_Type("ptr<{}>", F64)
+    TilePtrF64 = MLIR_Type("tile<{}>", PtrF64)
+
+    def export_foo(a: i32) -> None:
+        return
+
+    # def export_kernel(data_ptr: PtrF64) -> None:
+    #     pass
+
+_ = exported()

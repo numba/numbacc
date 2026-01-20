@@ -12,8 +12,11 @@ authors = []
 license = {text = "BSD-2-Clause"}
 readme = "README.md"
 dependencies = [
-    # TODO
+    "click>=8.1.0",
 ]
+
+[project.scripts]
+nbcc = "nbcc.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["nbcc", "nbcc.*"]
