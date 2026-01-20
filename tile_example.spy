@@ -1,5 +1,8 @@
-# Test this with:
-#   python -m nbcc.cli mlir tile_example.spy --backend=cutile
+"""
+Test this with:
+  python -m nbcc.cli mlir tile_example.spy out.mlir --backend=cutile
+  ../third-party/cuda-tile/build/bin/cuda-tile-opt out.mlir
+"""
 from mlir import MLIR_Type, MLIR_op, MLIR_asm
 
 

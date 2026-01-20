@@ -79,6 +79,7 @@ def shared(input_file, output_file):
 
 @main.command()
 @click.argument("input_file", type=click.Path(exists=True, dir_okay=False))
+@click.argument("output_file", type=click.Path(exists=True, dir_okay=False))
 @click.option(
     "--quiet",
     "-q",
@@ -92,7 +93,7 @@ def shared(input_file, output_file):
     default="cpu",
     help="Backend to use for compilation",
 )
-def mlir(input_file, quiet, backend):
+def mlir(input_file, output_file, quiet, backend):
     """Generate and print MLIR for SPy source.
 
     INPUT_FILE: Path to the SPy source file to compile to MLIR
@@ -123,7 +124,10 @@ def mlir(input_file, quiet, backend):
     click.echo("\n" + "=" * 60)
     click.echo("FINAL MLIR:")
     click.echo("=" * 60)
-    click.echo(module.operation.get_asm(enable_debug_info=False))
+    output = module.operation.get_asm(enable_debug_info=False)
+    click.echo(output)
+    with open(output_file, "w") as fout:
+        print(output, file=fout)
 
 
 if __name__ == "__main__":
