@@ -1,7 +1,12 @@
 from typing import TYPE_CHECKING, Annotated, cast
 
 from spy.fqn import FQN
-from ..mlir_utils import encode_asm_operation, create_mlir_type_fqn
+from ..mlir_utils import (
+    encode_asm_operation,
+    create_mlir_type_fqn,
+    parse_composite_type,
+    decode_type_name,
+)
 from spy.vm.builtin import IRTag
 from spy.vm.function import (
     FuncParam,
@@ -24,6 +29,18 @@ if TYPE_CHECKING:
 MLIR = ModuleRegistry("mlir")
 
 
+class W_MLIR_Value(W_Object):
+    """
+    Base class for MLIR value objects.
+    MLIR values are opaque objects that represent SSA values in MLIR.
+    """
+
+    __spy_storage_category__ = "reference"
+
+
+_type_caches = {}
+
+
 @MLIR.builtin_type("MLIR_Type")
 class W_MLIR_Type(W_StructType):
     original_name: str
@@ -40,17 +57,19 @@ class W_MLIR_Type(W_StructType):
             fn = getattr(t, "w_str", None)
             if fn is not None:
                 out = vm.unwrap_str(fn(vm, t))
-                print("DEBUG", out)
                 return out
             else:
                 raise TypeError
 
         formatted_name = name.format(*map(fmt, w_argtypes))
         fqn = create_mlir_type_fqn(formatted_name)
-        print("!DEBUG", fqn)
-        w_type = W_MLIR_Type.from_pyclass(fqn, W_Object)
+
+        if fqn in _type_caches:
+            return _type_caches[fqn]
+        w_type = W_MLIR_Type.from_pyclass(fqn, W_MLIR_Value)
         w_type.original_name = formatted_name
         w_type.size = 0  # Fake sizeof for SPy
+        _type_caches[fqn] = w_type
         return w_type
 
     @builtin_method("__str__")
@@ -71,12 +90,48 @@ def w_MLIR_op(
     params = [FuncParam(cast(W_Type, w_T), "simple") for w_T in argtypes_w]
     w_functype = W_FuncType.new(params, w_restype=w_restype)
 
-    def w_opimpl(vm: "SPyVM", *args_w: W_Object) -> RESTYPE:
+    def w_opimpl(vm: "SPyVM", *args_w: W_Object) -> W_Object:
         raise NotImplementedError("MLIR ops are not supposed to be called")
 
     fqn = FQN(["mlir", "op", opname])
     w_op = W_BuiltinFunc(w_functype, fqn, w_opimpl)
     irtag = IRTag("mlir.op")  # we can add any extra metadata we want here
+    vm.add_global(fqn, w_op, irtag=irtag)
+    return w_op
+
+
+@MLIR.builtin_func("MLIR_unpack")
+def w_MLIR_unpack(
+    vm: "SPyVM", w_fn: W_Object, w_idx: W_Object
+) -> W_BuiltinFunc:
+
+    restype = w_fn.w_functype.w_restype
+
+    assert restype.original_name.startswith("multivalues$")
+    members = parse_composite_type(restype.original_name)
+
+    def decode_type(str_fqn: str) -> str:
+        fqn = FQN(str_fqn)
+        [enc] = fqn.parts[-1].qualifiers
+        return decode_type_name(str(enc))
+
+    types = list(
+        map(lambda x: W_MLIR_Type.w_new(vm, vm.wrap(decode_type(x))), members)
+    )
+    idx = vm.unwrap_i32(w_idx)
+    retty = types[idx]
+
+    params = [FuncParam(B.w_object, "simple")]
+    w_functype = W_FuncType.new(params, w_restype=retty)
+
+    def w_opimpl(vm: "SPyVM", fn: W_Object) -> W_Object:
+        raise NotImplementedError("MLIR ops are not supposed to be called")
+
+    fqn = FQN(["mlir", "unpack"]).with_suffix(str(idx))
+    w_op = W_BuiltinFunc(w_functype, fqn, w_opimpl)
+    irtag = IRTag(
+        "mlir.asm", idx=idx
+    )  # we can add any extra metadata we want here
     vm.add_global(fqn, w_op, irtag=irtag)
     return w_op
 
@@ -95,10 +150,17 @@ def w_MLIR_asm(
         tyname = "multivalues$" + "|".join(innernames)
         fn_retty = W_MLIR_Type.w_new(vm, vm.wrap(tyname))
         RESTYPE = Annotated[W_Object, fn_retty]
-    else:
-        assert w_restype, W_Type
+        resname = fn_retty.fqn.fullname
+    elif isinstance(w_restype, W_Type):
         RESTYPE = Annotated[W_Object, w_restype]
         fn_retty = w_restype
+        resname = fn_retty.fqn.fullname
+    else:
+        raise AssertionError("NOT NEEDED")
+        assert w_restype == B.w_None
+        RESTYPE = W_Object
+        fn_retty = B.w_None
+        resname = "void"
 
     asm = vm.unwrap_str(w_asm)
     argtypes_w = w_argtypes.items_w
@@ -110,7 +172,6 @@ def w_MLIR_asm(
     # Cast to W_Type after assertion for type safety
     argtypes_typed = cast(list[W_Type], list(argtypes_w))
 
-    resname = fn_retty.fqn.fullname
     fqn_parts = [
         asm,
         resname,

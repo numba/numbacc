@@ -1,11 +1,11 @@
 """
 Test this with:
   python -m nbcc.cli mlir tile_example.spy out.mlir --backend=cutile
-  ../third-party/cuda-tile/build/bin/cuda-tile-opt out.mlir --mlir-print-op-generic
+  ../third-party/cuda-tile/build/bin/cuda-tile-opt --mlir-print-op-generic out.mlir
 """
 
 
-from mlir import MLIR_Type, MLIR_op, MLIR_asm
+from mlir import MLIR_Type, MLIR_op, MLIR_asm, MLIR_unpack
 
 @blue
 def exported() -> None:
@@ -26,12 +26,19 @@ def exported() -> None:
     iota = MLIR_asm("cuda_tile.iota", Tile128xI32, ())
     offset = MLIR_asm("cuda_tile.offset", Tile128xPtrF64, (Tile128xPtrF64, Tile128xI32))
     load_ptr_tko = MLIR_asm("cuda_tile.load_ptr_tko {memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}", (Tile128xF64, Token), (Tile128xPtrF64,))
+    unpack_0 = MLIR_unpack(load_ptr_tko, 0)
 
+    bottom = MLIR_Type("()")
+
+    printfn = MLIR_asm(r'cuda_tile.print {str="Data: %f\0A"}', bottom, (Tile128xF64,))
 
     def export_foo(a: TilePtrF64) -> None:
         tid = iota()
         ptrs = offset(broadcast(reshape(a)), tid)
-        load_ptr_tko(ptrs)
+        tko = load_ptr_tko(ptrs)
+        v = unpack_0(tko)
+        printfn(v)
+
         return
 
     # def export_kernel(data_ptr: PtrF64) -> None:

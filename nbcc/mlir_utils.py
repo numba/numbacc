@@ -62,6 +62,27 @@ def decode_asm_operation(encoded: str) -> str:
     return base64.urlsafe_b64decode(encoded.encode()).decode()
 
 
+def parse_composite_type(tyname: str) -> list[str] | None:
+    """
+    Parse a composite type name that contains multiple type components.
+
+    Composite types are encoded as "multivalues$type1|type2|type3|..."
+
+    Args:
+        tyname: The type name to parse
+
+    Returns:
+        List of individual type component names if it's a composite type,
+        None if it's not a composite type
+    """
+    if not tyname.startswith("multivalues$"):
+        return None
+
+    _, _, raw_items = tyname.partition("$")
+    items = raw_items.split("|")
+    return items
+
+
 def create_mlir_type_fqn(formatted_name: str):
     """
     Create an FQN for MLIR types with proper encoding.

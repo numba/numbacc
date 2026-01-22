@@ -1244,6 +1244,13 @@ class Lowering:
                         lowered_args,
                     )
                     return [io_val, res]
+                elif (
+                    callee_fqn_obj.namespace.fullname == "mlir"
+                    and callee_fqn_obj.parts[1].name == "unpack"
+                ):
+                    idx = int(callee_fqn_obj.parts[-1].suffix)
+                    [operand] = lowered_args
+                    return [io_val, operand[idx]]
                 else:
                     resty = self.be.lower_type(
                         cast(sg.TypeExpr, type_expr.args[0])

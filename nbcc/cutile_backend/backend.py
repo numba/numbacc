@@ -3,7 +3,7 @@ from abc import abstractmethod
 
 from typing import Any, Callable, Coroutine, Sequence, cast
 from nbcc.mlir_backend.backend import BackendInterface
-from nbcc.mlir_utils import decode_type_name
+from nbcc.mlir_utils import decode_type_name, parse_composite_type
 from nbcc.frontend import TranslationUnit
 from spy.fqn import FQN
 from sealir.dispatchtable import DispatchTableBuilder, dispatchtable
@@ -241,12 +241,10 @@ class CuTileBackend(BackendInterface):
         def _handle_mlir_types_by_parsing(self, fqn: FQN, args: tuple):
             [enc] = fqn.parts[-1].qualifiers
             tyname = decode_type_name(enc.fullname)
-            if tyname.startswith("multivalues$"):
-                _, _, raw_items = tyname.partition("$")
-                items = raw_items.split("|")
+            items = parse_composite_type(tyname)
+            if items is not None:
                 tys = []
                 for it in items:
-                    print("DEBUG:", it)
                     res = self._dispatch_lower_type(self, FQN(it), ())
                     TODO("proper handling of multiple values")
                     assert not isinstance(res, (tuple, list))
