@@ -3,6 +3,7 @@ from abc import abstractmethod
 
 from typing import Any, Callable, Coroutine, Sequence, cast
 from nbcc.mlir_backend.backend import BackendInterface
+from nbcc.mlir_utils import decode_type_name
 from nbcc.frontend import TranslationUnit
 from spy.fqn import FQN
 from sealir.dispatchtable import DispatchTableBuilder, dispatchtable
@@ -16,8 +17,10 @@ from cuda_tile._mlir._mlir_libs._cuda_tile import (
 )
 import cuda_tile._mlir.dialects._cuda_tile_ops_gen as _cuda_tile
 
-# from cuda_tile._mlir.extras import types as T
+from cuda_tile._mlir.extras import types as _tile_types
 import cuda_tile._mlir.ir as ir  # Context, Location, Module, Type
+
+from nbcc.developer import TODO
 
 
 def entry(
@@ -99,13 +102,37 @@ class CuTileBackend(BackendInterface):
 
                 def __init__(self, sym_name, *, loc=None, ip=None):
                     super().__init__(sym_name, loc=loc, ip=ip)
-                    body = self.regions[0].blocks.append()
+                    self._body = self.regions[0].blocks.append()
 
                 @property
                 def body(self):
-                    return self.regions[0].blocks[0]
+                    return self._body
 
             return ModuleOp("module", loc=ir.Location.name(module_name))
+
+    def create_mlir_asm(self, opname, attr, result_types, args):
+        if attr:
+            irattrs = ir.Attribute.parse(attr)
+            if isinstance(irattrs, ir.DictAttr):
+                attrs = {
+                    named_attr.name: named_attr.attr for named_attr in irattrs
+                }
+            else:
+                raise ValueError("expects a dictattr")
+
+        else:
+            attrs = None
+
+        op = ir.Operation.create(opname, result_types, args, attributes=attrs)
+        try:
+            op.verify()
+        except Exception:
+            print(op.get_asm())
+            raise
+        if len(result_types) == 1:
+            return op.result
+        elif len(result_types) > 1:
+            return op.results
 
     def create_function(self, function_name: str, input_types, output_types):
         fqn = FQN(function_name)
@@ -212,7 +239,21 @@ class CuTileBackend(BackendInterface):
             lambda self, fqn, args: fqn.namespace.fullname == "mlir::type"
         )
         def _handle_mlir_types_by_parsing(self, fqn: FQN, args: tuple):
-            return ir.Type.parse(fqn.symbol_name, context=self.context)
+            [enc] = fqn.parts[-1].qualifiers
+            tyname = decode_type_name(enc.fullname)
+            if tyname.startswith("multivalues$"):
+                _, _, raw_items = tyname.partition("$")
+                items = raw_items.split("|")
+                tys = []
+                for it in items:
+                    print("DEBUG:", it)
+                    res = self._dispatch_lower_type(self, FQN(it), ())
+                    TODO("proper handling of multiple values")
+                    assert not isinstance(res, (tuple, list))
+                    tys.append(res)
+                return tys
+            else:
+                return ir.Type.parse(tyname, context=self.context)
 
         def by_typename(fullname: str):
             def wrap(self, fqn, args):

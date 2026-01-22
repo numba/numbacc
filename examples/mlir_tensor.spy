@@ -30,7 +30,6 @@ def make_tensor_type(DTYPE):
     return TensorType
 
 
-
 @blue.generic
 def tensor_2d(dtype):
     T = MLIR_tensor_unranked[dtype]

@@ -1,23 +1,56 @@
 """
 Test this with:
   python -m nbcc.cli mlir tile_example.spy out.mlir --backend=cutile
-  ../third-party/cuda-tile/build/bin/cuda-tile-opt out.mlir
+  ../third-party/cuda-tile/build/bin/cuda-tile-opt out.mlir --mlir-print-op-generic
 """
+
+
 from mlir import MLIR_Type, MLIR_op, MLIR_asm
-
-
 
 @blue
 def exported() -> None:
     # Alias for types
     F64 = MLIR_Type("f64")
+    I32 = MLIR_Type("i32")
     PtrF64 = MLIR_Type("ptr<{}>", F64)
-    TilePtrF64 = MLIR_Type("tile<{}>", PtrF64)
+    TilePtrF64 = MLIR_Type("!cuda_tile.tile<{}>", PtrF64)
+    Tile1xPtrF64 = MLIR_Type("!cuda_tile.tile<1x{}>", PtrF64)
+    Tile128xPtrF64 = MLIR_Type("!cuda_tile.tile<128x{}>", PtrF64)
+    Tile128xI32 = MLIR_Type("!cuda_tile.tile<128x{}>", I32)
+    Tile128xF64 = MLIR_Type("!cuda_tile.tile<128x{}>", F64)
 
-    def export_foo(a: i32) -> None:
+    Token = MLIR_Type("!cuda_tile.token")
+
+    reshape = MLIR_asm("cuda_tile.reshape", Tile1xPtrF64, (TilePtrF64,))
+    broadcast = MLIR_asm("cuda_tile.broadcast", Tile128xPtrF64, (Tile1xPtrF64,))
+    iota = MLIR_asm("cuda_tile.iota", Tile128xI32, ())
+    offset = MLIR_asm("cuda_tile.offset", Tile128xPtrF64, (Tile128xPtrF64, Tile128xI32))
+    load_ptr_tko = MLIR_asm("cuda_tile.load_ptr_tko {memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}", (Tile128xF64, Token), (Tile128xPtrF64,))
+
+
+    def export_foo(a: TilePtrF64) -> None:
+        tid = iota()
+        ptrs = offset(broadcast(reshape(a)), tid)
+        load_ptr_tko(ptrs)
         return
 
     # def export_kernel(data_ptr: PtrF64) -> None:
     #     pass
 
 _ = exported()
+
+# "builtin.module"() ({
+#   "cuda_tile.module"() <{sym_name = "example_module"}> ({
+#     "cuda_tile.entry"() <{arg_attrs = [{}], function_type = (!cuda_tile.tile<ptr<f32>>) -> (), sym_name = "example_kernel"}> ({
+#     ^bb0(%arg0: !cuda_tile.tile<ptr<f32>>):
+#       "cuda_tile.print"() <{str = "Running example module\0A"}> : () -> ()
+#       %0 = "cuda_tile.iota"() : () -> !cuda_tile.tile<128xi32>
+#       %1 = "cuda_tile.reshape"(%arg0) : (!cuda_tile.tile<ptr<f32>>) -> !cuda_tile.tile<1xptr<f32>>
+#       %2 = "cuda_tile.broadcast"(%1) : (!cuda_tile.tile<1xptr<f32>>) -> !cuda_tile.tile<128xptr<f32>>
+#       %3 = "cuda_tile.offset"(%2, %0) : (!cuda_tile.tile<128xptr<f32>>, !cuda_tile.tile<128xi32>) -> !cuda_tile.tile<128xptr<f32>>
+#       %4:2 = "cuda_tile.load_ptr_tko"(%3) <{memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (!cuda_tile.tile<128xptr<f32>>) -> (!cuda_tile.tile<128xf32>, !cuda_tile.token)
+#       "cuda_tile.print"(%4#0) <{str = "Data: %f\0A"}> : (!cuda_tile.tile<128xf32>) -> ()
+#       "cuda_tile.return"() : () -> ()
+#     }) : () -> ()
+#   }) : () -> ()
+# }) : () -> ()

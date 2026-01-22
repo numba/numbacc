@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import ctypes
 from collections import defaultdict
 from contextlib import contextmanager
@@ -27,6 +26,7 @@ from sealir.rvsdg import internal_prefix
 from spy.fqn import FQN
 
 from nbcc.developer import TODO
+from nbcc.mlir_utils import decode_type_name, decode_asm_operation
 
 from ..frontend import grammar as sg, TranslationUnit
 from .mlir_passes import PassManager
@@ -233,6 +233,29 @@ class Backend(BackendInterface):
     def create_return(self, values):
         return func.ReturnOp(values)
 
+    def create_mlir_asm(self, opname, attr, result_types, args):
+        assert isinstance(result_types, (list, tuple))
+        if attr:
+            irattrs = ir.Attribute.parse(attr)
+            if isinstance(irattrs, ir.DictAttr):
+                attrs = {
+                    named_attr.name: named_attr.attr for named_attr in irattrs
+                }
+            else:
+                raise ValueError("expects a dictattr")
+
+        else:
+            attrs = None
+        print("DEBUG:", result_types)
+        op = ir.Operation.create(opname, result_types, args, attributes=attrs)
+        try:
+            op.verify()
+        except Exception:
+            print(op.get_asm())
+            raise
+        if result_types:
+            return op.result
+
     def create_function(self, function_name: str, input_types, output_types):
         # Constuct a function that emits a callable C-interface.
         fnty = func.FunctionType.get(input_types, output_types)
@@ -297,7 +320,9 @@ class Backend(BackendInterface):
             lambda self, fqn, args: fqn.namespace.fullname == "mlir::type"
         )
         def _handle_mlir_types_by_parsing(self, fqn: FQN, args: tuple):
-            return ir.Type.parse(fqn.symbol_name, context=self.context)
+            [enc] = fqn.parts[-1].qualifiers
+            tyname = decode_type_name(str(enc))
+            return ir.Type.parse(tyname, context=self.context)
 
         def by_typename(fullname: str):
             def wrap(self, fqn, args):
@@ -1177,9 +1202,7 @@ class Lowering:
                 [callee_ti] = mdmap.lookup_typeinfo(callee_fqn)
 
                 type_expr: sg.TypeExpr = cast(sg.TypeExpr, callee_ti.type_expr)
-                resty = self.be.lower_type(
-                    cast(sg.TypeExpr, type_expr.args[0])
-                )
+
                 argtys = []
                 for arg in args_vals:
                     [ti] = mdmap.lookup_typeinfo(arg)
@@ -1197,7 +1220,10 @@ class Lowering:
 
                 if callee_fqn_obj.namespace.fullname == "mlir::op":
                     TODO("XXX: hardcode support of MLIR::OP ")
-
+                    resty = self.be.lower_type(
+                        cast(sg.TypeExpr, type_expr.args[0])
+                    )
+                    result_types = [resty]
                     res = self.be.handle_mlir_op(
                         callee_fqn_obj.symbol_name,
                         resty,
@@ -1209,13 +1235,20 @@ class Lowering:
                     return [io_val, res]
                     # self.declare_builtins(c_name, argtys, [resty])
                 elif callee_fqn_obj.namespace.fullname == "mlir::asm":
+                    result_types = self.lower_types(
+                        cast(sg.TypeExpr, type_expr.args[0])
+                    )
                     res = self._handle_mlir_asm(
                         callee_fqn_obj.symbol_name,
-                        resty,
+                        result_types,
                         lowered_args,
                     )
-
                     return [io_val, res]
+                else:
+                    resty = self.be.lower_type(
+                        cast(sg.TypeExpr, type_expr.args[0])
+                    )
+                    result_types = [resty]
                 # if callee_fqn.fullname == "builtins::print_object":
                 #     TODO("XXX: hardcode support of builtins::print_object ")
                 #     with self.module_body:
@@ -1227,7 +1260,7 @@ class Lowering:
                 #             visibility="private",
                 #         )
 
-                call = func.call([resty], c_name, lowered_args)
+                call = func.call(result_types, c_name, lowered_args)
                 return [io_val, call]
             case rg.PyNone():
                 return self.be.create_none()
@@ -1236,8 +1269,17 @@ class Lowering:
                     expr, type(expr), ase.as_tuple(expr, depth=3)
                 )
 
-    def _handle_mlir_asm(self, mlir_op: str, resty, args):
-        mlir_op = base64.urlsafe_b64decode(mlir_op.encode()).decode()
+    def lower_types(self, type_expr: sg.TypeExpr) -> tuple[ir.Type, ...]:
+        res = self.be.lower_type(type_expr)
+        if res is None:
+            return ()
+        if not isinstance(res, (tuple, list)):
+            return (res,)
+        else:
+            return tuple(res)
+
+    def _handle_mlir_asm(self, mlir_op: str, result_types, args):
+        mlir_op = decode_asm_operation(mlir_op)
         try:
             first_split = mlir_op.index("$")
         except ValueError:
@@ -1246,27 +1288,7 @@ class Lowering:
             mlir_op = mlir_op[:first_split]
 
         opname, _, attr = mlir_op.partition(" ")
-        if attr:
-            irattrs = ir.Attribute.parse(attr)
-            if isinstance(irattrs, ir.DictAttr):
-                attrs = {
-                    named_attr.name: named_attr.attr for named_attr in irattrs
-                }
-            else:
-                raise ValueError("expects a dictattr")
-
-        else:
-            attrs = None
-
-        result_types = [resty] if resty else []
-        op = ir.Operation.create(opname, result_types, args, attributes=attrs)
-        try:
-            op.verify()
-        except Exception:
-            print(op.get_asm())
-            raise
-        if resty:
-            return op.result
+        return self.be.create_mlir_asm(opname, attr, result_types, args)
 
     # ## JIT Compilation
     #

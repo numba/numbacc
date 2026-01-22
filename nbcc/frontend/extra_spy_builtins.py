@@ -1,8 +1,7 @@
 from typing import TYPE_CHECKING, Annotated, cast
 
-import base64
-
 from spy.fqn import FQN
+from ..mlir_utils import encode_asm_operation, create_mlir_type_fqn
 from spy.vm.builtin import IRTag
 from spy.vm.function import (
     FuncParam,
@@ -11,6 +10,7 @@ from spy.vm.function import (
     W_ASTFunc,
     W_Func,
 )
+from spy.vm.b import B
 from spy.vm.member import Member
 from spy.vm.object import W_Object, W_Type, builtin_method
 from spy.vm.struct import W_StructType
@@ -39,13 +39,17 @@ class W_MLIR_Type(W_StructType):
         def fmt(t: "W_MLIR_Type"):
             fn = getattr(t, "w_str", None)
             if fn is not None:
-                return vm.unwrap_str(fn(vm, t))
+                out = vm.unwrap_str(fn(vm, t))
+                print("DEBUG", out)
+                return out
             else:
                 raise TypeError
 
-        fqn = FQN(["mlir", "type", name.format(*map(fmt, w_argtypes))])
+        formatted_name = name.format(*map(fmt, w_argtypes))
+        fqn = create_mlir_type_fqn(formatted_name)
+        print("!DEBUG", fqn)
         w_type = W_MLIR_Type.from_pyclass(fqn, W_Object)
-        w_type.original_name = name
+        w_type.original_name = formatted_name
         w_type.size = 0  # Fake sizeof for SPy
         return w_type
 
@@ -79,9 +83,23 @@ def w_MLIR_op(
 
 @MLIR.builtin_func("MLIR_asm")
 def w_MLIR_asm(
-    vm: "SPyVM", w_asm: W_Str, w_restype: W_Type, w_argtypes: W_Tuple
+    vm: "SPyVM", w_asm: W_Str, w_restype: W_Object, w_argtypes: W_Tuple
 ) -> W_BuiltinFunc:
-    RESTYPE = Annotated[W_Object, w_restype]
+
+    if isinstance(w_restype, W_Tuple):
+        innernames = []
+        for it_type in w_restype.items_w:
+            assert isinstance(it_type, W_MLIR_Type)
+            innernames.append(it_type.fqn.fullname)
+
+        tyname = "multivalues$" + "|".join(innernames)
+        fn_retty = W_MLIR_Type.w_new(vm, vm.wrap(tyname))
+        RESTYPE = Annotated[W_Object, fn_retty]
+    else:
+        assert w_restype, W_Type
+        RESTYPE = Annotated[W_Object, w_restype]
+        fn_retty = w_restype
+
     asm = vm.unwrap_str(w_asm)
     argtypes_w = w_argtypes.items_w
 
@@ -92,16 +110,17 @@ def w_MLIR_asm(
     # Cast to W_Type after assertion for type safety
     argtypes_typed = cast(list[W_Type], list(argtypes_w))
 
+    resname = fn_retty.fqn.fullname
     fqn_parts = [
         asm,
-        w_restype.fqn.fullname,
+        resname,
         *(at.fqn.fullname for at in argtypes_typed),
     ]
-    opname = base64.urlsafe_b64encode(("$".join(fqn_parts)).encode()).decode()
+    opname = encode_asm_operation(fqn_parts)
 
     # functype - use the typed argtypes after assertion
     params = [FuncParam(w_T, "simple") for w_T in argtypes_typed]
-    w_functype = W_FuncType.new(params, w_restype=w_restype)
+    w_functype = W_FuncType.new(params, w_restype=fn_retty)
 
     def w_opimpl(vm: "SPyVM", *args_w: W_Object) -> RESTYPE:
         raise NotImplementedError("MLIR ops are not supposed to be called")
