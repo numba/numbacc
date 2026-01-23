@@ -2,6 +2,9 @@
 Test this with:
   python -m nbcc.cli mlir tile_example.spy out.mlir --backend=cutile
   ../third-party/cuda-tile/build/bin/cuda-tile-opt --mlir-print-op-generic out.mlir
+  cuda-tile-translate out.mlir --bytecode-version=13.1 --mlir-to-cudatilebc --no-implicit-module -o example.tilebc
+  tileiras --gpu-name sm_120 example.tilebc -o example.cubin
+
 """
 
 
@@ -35,14 +38,11 @@ def exported() -> None:
     def export_foo(a: TilePtrF64) -> None:
         tid = iota()
         ptrs = offset(broadcast(reshape(a)), tid)
-        tko = load_ptr_tko(ptrs)
-        v = unpack_0(tko)
-        printfn(v)
+        tko = load_ptr_tko(ptrs)  # load pointers
+        v = unpack_0(tko)  # MLIR details to get the tile data
+        printfn(v)  # print the tile data
 
         return
-
-    # def export_kernel(data_ptr: PtrF64) -> None:
-    #     pass
 
 _ = exported()
 
