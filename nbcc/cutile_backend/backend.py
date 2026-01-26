@@ -213,9 +213,16 @@ class CuTileBackend(BackendInterface):
         return self._llvm_ptr
 
     # Core Methods
-    def lower_type(self, ty) -> ir.Type:
-        """Convert SealIR types to backend IR types."""
+    def lower_type(self, ty) -> tuple[ir.Type, ...]:
+        """Convert SealIR types to backend IR types.
+
+        Returns a tuple of MLIR types. For single types, returns (type,).
+        For void/None types, returns (). For composite types, returns
+        tuple of all component types.
+        """
         res = self._dispatch_lower_type(self, fqn=FQN(ty.name), args=ty.args)
+
+        assert isinstance(res, tuple), str(res)
         return res
 
     @dispatchtable
@@ -233,7 +240,7 @@ class CuTileBackend(BackendInterface):
 
         @disp.case(type_name_matches("mlir::type::()"))
         def _handle_void(self, fqn: FQN, args: tuple):
-            return None
+            return ()
 
         @disp.case(
             lambda self, fqn, args: fqn.namespace.fullname == "mlir::type"
@@ -243,15 +250,20 @@ class CuTileBackend(BackendInterface):
             tyname = decode_type_name(enc.fullname)
             items = parse_composite_type(tyname)
             if items is not None:
-                tys = []
+                # Handle composite types (multiple values)
+                tys: list[ir.Type] = []
                 for it in items:
                     res = self._dispatch_lower_type(self, FQN(it), ())
-                    TODO("proper handling of multiple values")
-                    assert not isinstance(res, (tuple, list))
-                    tys.append(res)
-                return tys
+                    # All dispatch methods should return tuples consistently
+                    assert isinstance(
+                        res, tuple
+                    ), f"Expected tuple from dispatch, got {type(res)}: {res}"
+                    tys.extend(res)
+                return tuple(tys)
             else:
-                return ir.Type.parse(tyname, context=self.context)
+                # Single type - return the type (will be wrapped in tuple by lower_type)
+                ty = ir.Type.parse(tyname, context=self.context)
+                return (ty,)
 
         def by_typename(fullname: str):
             def wrap(self, fqn, args):
@@ -261,11 +273,11 @@ class CuTileBackend(BackendInterface):
 
         @disp.case(by_typename("builtins::i32"))
         def _handle_builtins_i32(self, fqn: FQN, args: tuple):
-            return self.i32
+            return (self.i32,)
 
         @disp.case(by_typename("types::NoneType"))
         def _handle_none(self, fqn: FQN, args: tuple):
-            return self.none_type
+            return ()
 
     def get_ll_type(self, expr, mdmap) -> ir.Type | None:
         """Get backend type for expression with metadata."""
@@ -277,6 +289,6 @@ class CuTileBackend(BackendInterface):
         """Handle builtin operations during lowering."""
         raise NotImplementedError
 
-    def handle_mlir_op(self, mlir_op: str, resty, args):
+    def handle_mlir_op(self, mlir_op: str, result_types, args):
         """Handle MLIR-specific operations during lowering."""
         raise NotImplementedError

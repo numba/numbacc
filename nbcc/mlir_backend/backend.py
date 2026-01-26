@@ -135,8 +135,13 @@ class BackendInterface(ABC):
 
     # Core Methods
     @abstractmethod
-    def lower_type(self, ty) -> ir.Type:
-        """Convert SealIR types to backend IR types."""
+    def lower_type(self, ty) -> tuple[ir.Type, ...]:
+        """Convert SealIR types to backend IR types.
+
+        Returns a tuple of MLIR types. For single types, returns (type,).
+        For void/None types, returns (). For composite types, returns
+        tuple of all component types.
+        """
 
     @abstractmethod
     def get_ll_type(self, expr, mdmap) -> ir.Type | None:
@@ -149,7 +154,7 @@ class BackendInterface(ABC):
         """Handle builtin operations during lowering."""
 
     @abstractmethod
-    def handle_mlir_op(self, mlir_op: str, resty, args):
+    def handle_mlir_op(self, mlir_op: str, result_types, args):
         """Handle MLIR-specific operations during lowering."""
 
 
@@ -287,13 +292,14 @@ class Backend(BackendInterface):
         func_block = fun.body.blocks[1]
         return fun, const_block, func_block
 
-    def lower_type(self, ty: sg.TypeExpr) -> ir.Type:
+    def lower_type(self, ty: sg.TypeExpr) -> tuple[ir.Type, ...]:
         """Type Lowering
 
         Convert SealIR types to MLIR types for compilation.
+        Always returns a tuple for consistent interface.
         """
-
         res = self._dispatch_lower_type(self, fqn=FQN(ty.name), args=ty.args)
+        assert isinstance(res, tuple), res
         return res
 
     @dispatchtable
@@ -314,7 +320,7 @@ class Backend(BackendInterface):
 
         @disp.case(type_name_matches("mlir::type::()"))
         def _handle_void(self, fqn: FQN, args: tuple):
-            return None
+            return ()
 
         @disp.case(
             lambda self, fqn, args: fqn.namespace.fullname == "mlir::type"
@@ -322,7 +328,8 @@ class Backend(BackendInterface):
         def _handle_mlir_types_by_parsing(self, fqn: FQN, args: tuple):
             [enc] = fqn.parts[-1].qualifiers
             tyname = decode_type_name(str(enc))
-            return ir.Type.parse(tyname, context=self.context)
+            ty = ir.Type.parse(tyname, context=self.context)
+            return (ty,)
 
         def by_typename(fullname: str):
             def wrap(self, fqn, args):
@@ -332,11 +339,11 @@ class Backend(BackendInterface):
 
         @disp.case(by_typename("builtins::i32"))
         def _handle_builtins_i32(self, fqn: FQN, args: tuple):
-            return self.i32
+            return (self.i32,)
 
         @disp.case(by_typename("types::NoneType"))
         def _handle_none(self, fqn: FQN, args: tuple):
-            return self.none_type
+            return ()
 
         @disp.case(is_struct_type)
         def _handle_struct(self: Backend, fqn: FQN, args: tuple):
@@ -682,12 +689,13 @@ class Backend(BackendInterface):
             assert bc.verify()
             return bc
 
-    def get_ll_type(self, expr: ase.SExpr, mdmap: MDMap) -> sg.TypeInfo | None:
+    def get_ll_type(self, expr: ase.SExpr, mdmap: MDMap) -> ir.Type:
         mds = mdmap.lookup_typeinfo(expr)
         if not mds:
             return None
         [ty] = mds
-        return self.lower_type(cast(sg.TypeExpr, ty.type_expr))
+        [llty] = self.lower_type(cast(sg.TypeExpr, ty.type_expr))
+        return llty
 
     def make_module(self, module_name: str) -> ir.Module:
         with self.context:
@@ -867,8 +875,9 @@ class Lowering:
             if port.name == internal_prefix("ret")
         ]
         [ti] = self.mdmap.lookup_typeinfo(retval)
-        outs = [self.be.lower_type(ti.type_expr)]
-        # Remove return None
+        out_types = self.be.lower_type(ti.type_expr)
+        # Convert tuple to list and handle None type
+        outs = list(out_types)
         if outs == [self.be.none_type]:
             return []
         return outs
@@ -906,7 +915,9 @@ class Lowering:
         assert isinstance(root.args, rg.Args)
         arguments = root.args.arguments
 
-        input_types = tuple([self.be.lower_type(x) for x in arguments])
+        input_types = tuple(
+            [typ for arg in arguments for typ in self.be.lower_type(arg)]
+        )
         output_types = self.get_return_types(root)
 
         with context, loc, module_body:
@@ -1203,12 +1214,13 @@ class Lowering:
 
                 type_expr: sg.TypeExpr = cast(sg.TypeExpr, callee_ti.type_expr)
 
-                argtys = []
+                argtys: list[ir.Type] = []
                 for arg in args_vals:
                     [ti] = mdmap.lookup_typeinfo(arg)
-                    argtys.append(
-                        self.be.lower_type(cast(sg.TypeExpr, ti.type_expr))
+                    arg_types = self.be.lower_type(
+                        cast(sg.TypeExpr, ti.type_expr)
                     )
+                    argtys.extend(arg_types)
 
                 lowered_args = []
                 for arg in args_vals:
@@ -1220,13 +1232,13 @@ class Lowering:
 
                 if callee_fqn_obj.namespace.fullname == "mlir::op":
                     TODO("XXX: hardcode support of MLIR::OP ")
-                    resty = self.be.lower_type(
+                    result_types_tuple = self.be.lower_type(
                         cast(sg.TypeExpr, type_expr.args[0])
                     )
-                    result_types = [resty]
+
                     res = self.be.handle_mlir_op(
                         callee_fqn_obj.symbol_name,
-                        resty,
+                        result_types_tuple,
                         lowered_args,
                     )
                     owner = getattr(res, "owner", None)
@@ -1235,8 +1247,10 @@ class Lowering:
                     return [io_val, res]
                     # self.declare_builtins(c_name, argtys, [resty])
                 elif callee_fqn_obj.namespace.fullname == "mlir::asm":
-                    result_types = self.lower_types(
-                        cast(sg.TypeExpr, type_expr.args[0])
+                    result_types = list(
+                        self.be.lower_type(
+                            cast(sg.TypeExpr, type_expr.args[0])
+                        )
                     )
                     res = self._handle_mlir_asm(
                         callee_fqn_obj.symbol_name,
@@ -1252,10 +1266,10 @@ class Lowering:
                     [operand] = lowered_args
                     return [io_val, operand[idx]]
                 else:
-                    resty = self.be.lower_type(
+                    result_types_tuple = self.be.lower_type(
                         cast(sg.TypeExpr, type_expr.args[0])
                     )
-                    result_types = [resty]
+                    result_types = list(result_types_tuple)
                 # if callee_fqn.fullname == "builtins::print_object":
                 #     TODO("XXX: hardcode support of builtins::print_object ")
                 #     with self.module_body:
@@ -1275,15 +1289,6 @@ class Lowering:
                 raise NotImplementedError(
                     expr, type(expr), ase.as_tuple(expr, depth=3)
                 )
-
-    def lower_types(self, type_expr: sg.TypeExpr) -> tuple[ir.Type, ...]:
-        res = self.be.lower_type(type_expr)
-        if res is None:
-            return ()
-        if not isinstance(res, (tuple, list)):
-            return (res,)
-        else:
-            return tuple(res)
 
     def _handle_mlir_asm(self, mlir_op: str, result_types, args):
         mlir_op = decode_asm_operation(mlir_op)
