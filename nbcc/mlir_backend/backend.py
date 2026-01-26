@@ -138,6 +138,84 @@ class Backend(BackendInterface):
         if result_types:
             return op.result
 
+    # Constant creation methods
+    def create_constant_i32(self, value: int):
+        return arith.constant(self.i32, value)
+
+    def create_constant_i64(self, value: int):
+        return arith.constant(self.i64, value)
+
+    def create_constant_f64(self, value: float):
+        return arith.constant(self.f64, value)
+
+    def create_constant_boolean(self, value: bool):
+        return arith.constant(self.boolean, value)
+
+    # Control flow methods
+    def create_if_op(self, condition, result_types, has_else=True):
+        from mlir.dialects import scf
+        return scf.IfOp(cond=condition, results_=result_types, hasElse=has_else)
+
+    def create_yield_op(self, operands):
+        from mlir.dialects import scf
+        return scf.YieldOp(operands)
+
+    def create_while_op(self, result_types, init_args):
+        from mlir.dialects import scf
+        return scf.WhileOp(results_=result_types, inits=init_args)
+
+    def create_condition_op(self, condition, args):
+        from mlir.dialects import scf
+        return scf.ConditionOp(args=args, condition=condition)
+
+    def get_scf_op_results(self, while_op):
+        from mlir.dialects import scf
+        return scf._get_op_results_or_values(while_op)
+
+    # Function operation methods
+    def create_function_call(self, result_types, callee, args):
+        return func.call(result_types, callee, args)
+
+    def create_function_declaration(self, name, arg_types, result_types, visibility="private"):
+        fntype = ir.FunctionType.get(arg_types, result_types)
+        return func.FuncOp(name, fntype, visibility=visibility)
+
+    # String constant method
+    def create_string_constant(self, state: LowerStates, value: str):
+        """Create string constant with LLVM global and address operations."""
+        encoded = value.encode("utf8")
+        length = len(encoded)
+
+        struct_type = ir.Type.parse(
+            f"!llvm.struct<(i64, array<{length} x i8>)>"
+        )
+        struct_value = ir.ArrayAttr.get(
+            [
+                ir.IntegerAttr.get(self.i64, length),
+                ir.StringAttr.get(encoded),
+            ]
+        )
+
+        # Use hash of string value for unique symbol name
+        sym_name = ".const.str" + str(hash(value))
+
+        # Create global in module body (current insertion point should be module body)
+        llvm.GlobalOp(
+            global_type=struct_type,
+            sym_name=sym_name,
+            linkage=ir.Attribute.parse("#llvm.linkage<private>"),
+            constant=True,
+            value=struct_value,
+            addr_space=0,
+        )
+        with state.constant_block:
+            # Return address operation
+            ptr_type = self.llvm_ptr
+            str_addr = llvm.AddressOfOp(
+                ptr_type, ir.FlatSymbolRefAttr.get(sym_name)
+            )
+        return str_addr
+
     def create_function(self, function_name: str, input_types, output_types):
         # Constuct a function that emits a callable C-interface.
         fnty = func.FunctionType.get(input_types, output_types)

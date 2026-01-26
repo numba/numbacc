@@ -6,12 +6,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Sequence, cast
 
-import mlir.dialects.arith as arith
-import mlir.dialects.cf as cf
-import mlir.dialects.func as func
-import mlir.dialects.scf as scf
-import mlir.ir as ir
-from mlir.dialects import llvm
 
 from sealir import ase
 from sealir.ase import SExpr
@@ -28,8 +22,8 @@ from nbcc.frontend import grammar as sg, TranslationUnit
 class LowerStates(ase.TraverseState):
     push: Callable
     get_region_args: Callable
-    function_block: func.FuncOp
-    constant_block: ir.Block
+    function_block: Any
+    constant_block: Any
 
 
 class MDMap:
@@ -179,17 +173,70 @@ class BackendInterface(ABC):
     def create_mlir_asm(self, opname, attr, result_types, args):
         """Create MLIR operation from assembly specification."""
 
+    # Constant creation methods
+    @abstractmethod
+    def create_constant_i32(self, value: int) -> Any:
+        """Create 32-bit integer constant."""
+
+    @abstractmethod
+    def create_constant_i64(self, value: int) -> Any:
+        """Create 64-bit integer constant."""
+
+    @abstractmethod
+    def create_constant_f64(self, value: float) -> Any:
+        """Create 64-bit float constant."""
+
+    @abstractmethod
+    def create_constant_boolean(self, value: bool) -> Any:
+        """Create boolean constant."""
+
+    # Control flow methods
+    @abstractmethod
+    def create_if_op(self, condition: Any, result_types: list, has_else: bool = True) -> Any:
+        """Create if-else control flow operation."""
+
+    @abstractmethod
+    def create_yield_op(self, operands: list) -> Any:
+        """Create yield operation for control flow regions."""
+
+    @abstractmethod
+    def create_while_op(self, result_types: list, init_args: list) -> Any:
+        """Create while loop operation."""
+
+    @abstractmethod
+    def create_condition_op(self, condition: Any, args: list) -> Any:
+        """Create condition operation for loops."""
+
+    @abstractmethod
+    def get_scf_op_results(self, while_op: Any) -> Any:
+        """Get results from SCF while operation."""
+
+    # Function operation methods
+    @abstractmethod
+    def create_function_call(self, result_types: list, callee: str, args: list) -> Any:
+        """Create function call operation."""
+
+    @abstractmethod
+    def create_function_declaration(self, name: str, arg_types: list,
+                                   result_types: list, visibility: str = "private") -> Any:
+        """Create function declaration operation."""
+
+    # String constant method
+    @abstractmethod
+    def create_string_constant(self, state: LowerStates, value: str) -> Any:
+        """Create string constant with backend-specific implementation."""
+
 
 class Lowering:
     be: BackendInterface
-    module: ir.Module
+    module: Any
     mdmap: MDMap
-    loc: ir.Location
+    loc: Any
 
     def __init__(
         self,
         be: BackendInterface,
-        module: ir.Module,
+        module: Any,
         mdmap: MDMap,
         func_map: dict[str, rg.Func],
     ):
@@ -197,9 +244,9 @@ class Lowering:
         self.module = module
         self.mdmap = mdmap
         self.func_map = func_map
-        self._declared: dict[str, func.FuncOp] = {}
+        self._declared: dict[str, Any] = {}
 
-    def get_return_types(self, root) -> list[ir.Type]:
+    def get_return_types(self, root) -> list[Any]:
         [retval] = [
             port.value
             for port in root.body.ports
@@ -225,7 +272,7 @@ class Lowering:
                     bin.append((irtagdata.key, irtagdata.value))
         return out
 
-    def lower(self, root: rg.Func) -> func.FuncOp:
+    def lower(self, root: rg.Func) -> Any:
         """Expression Lowering
 
         Lower RVSDG expressions to MLIR operations, handling control flow
@@ -381,51 +428,22 @@ class Lowering:
 
             case rg.PyInt(int(ival)):
                 with state.constant_block:
-                    const = arith.constant(
-                        self.be.i32, ival
-                    )  # HACK: select type
+                    const = self.be.create_constant_i32(ival)  # HACK: select type
                 return const
 
             case rg.PyBool(int(ival)):
                 with state.constant_block:
-                    const = arith.constant(self.be.boolean, ival)
+                    const = self.be.create_constant_boolean(bool(ival))
                 return const
 
             case rg.PyFloat(float(fval)):
                 with state.constant_block:
-                    const = arith.constant(self.be.f64, fval)
+                    const = self.be.create_constant_f64(fval)
                 return const
 
             case rg.PyStr(str(strval)):
                 with self.module_body:
-                    encoded = strval.encode("utf8")
-                    length = len(encoded)
-
-                    struct_type = ir.Type.parse(
-                        f"!llvm.struct<(i64, array<{length} x i8>)>"
-                    )
-                    struct_value = struct_value = ir.ArrayAttr.get(
-                        [
-                            ir.IntegerAttr.get(self.be.i64, length),
-                            ir.StringAttr.get(encoded),
-                        ]
-                    )
-
-                    sym_name = ".const.str" + str(hash(expr))
-                    llvm.GlobalOp(
-                        global_type=struct_type,
-                        sym_name=sym_name,
-                        linkage=ir.Attribute.parse("#llvm.linkage<private>"),
-                        constant=True,
-                        value=struct_value,
-                        addr_space=0,
-                    )
-                with state.constant_block:
-                    ptr_type = self.be.llvm_ptr
-                    str_addr = llvm.AddressOfOp(
-                        ptr_type, ir.FlatSymbolRefAttr.get(sym_name)
-                    )
-
+                    str_addr = self.be.create_string_constant(state, strval)
                 return str_addr
 
             # NBCC specific - BuiltinOp cases handled by dispatch table
@@ -449,10 +467,10 @@ class Lowering:
                     )
 
             case rg.PyBool(val):
-                return arith.constant(self.be.boolean, val)
+                return self.be.create_constant_boolean(bool(val))
 
             case rg.PyInt(val):
-                return arith.constant(self.be.i64, val)
+                return self.be.create_constant_i64(val)
 
             case rg.IfElse(
                 cond=cond, body=body, orelse=orelse, operands=operands
@@ -462,7 +480,7 @@ class Lowering:
                 for op in operands:
                     operand_vals.append((yield op))
 
-                result_tys: list[ir.Type] = []
+                result_tys: list[Any] = []
 
                 # determine result types
                 assert isinstance(body, rg.RegionEnd)
@@ -482,19 +500,19 @@ class Lowering:
                     result_tys.append(ty)
 
                 # Build the MLIR If-else
-                if_op = scf.IfOp(
-                    cond=condval, results_=result_tys, hasElse=True
+                if_op = self.be.create_if_op(
+                    condition=condval, result_types=result_tys, has_else=True
                 )
 
                 with state.push(operand_vals):
                     # Make a detached module to temporarily house the blocks
                     with self.be.InsertionPoint(if_op.then_block):
                         value_body = yield body
-                        scf.YieldOp([x for x in value_body])
+                        self.be.create_yield_op([x for x in value_body])
 
                     with self.be.InsertionPoint(if_op.else_block):
                         value_else = yield orelse
-                        scf.YieldOp([x for x in value_else])
+                        self.be.create_yield_op([x for x in value_else])
 
                 return if_op.results
 
@@ -502,17 +520,17 @@ class Lowering:
                 # Cast operands to expected type from pattern match
                 loop_operands = cast("list[SExpr]", operands)
                 # process operands
-                loop_operand_vals: list[ir.Value] = []
+                loop_operand_vals: list[Any] = []
                 for op in loop_operands:
-                    loop_operand_vals.append(cast(ir.Value, (yield op)))
+                    loop_operand_vals.append(cast(Any, (yield op)))
 
-                loop_result_tys: list[ir.Type] = []
+                loop_result_tys: list[Any] = []
                 for op in loop_operand_vals:
-                    loop_result_tys.append(cast(ir.Value, op).type)
+                    loop_result_tys.append(cast(Any, op).type)
 
-                while_op = scf.WhileOp(
-                    results_=loop_result_tys,
-                    inits=[op for op in loop_operand_vals],
+                while_op = self.be.create_while_op(
+                    result_types=loop_result_tys,
+                    init_args=[op for op in loop_operand_vals],
                 )
                 before_block = while_op.before.blocks.append(*loop_result_tys)
                 after_block = while_op.after.blocks.append(*loop_result_tys)
@@ -521,20 +539,20 @@ class Lowering:
                 # Before Region
                 with self.be.InsertionPoint(before_block), state.push(new_ops):
                     values = yield body
-                    scf.ConditionOp(
-                        args=[val for val in values[1:]], condition=values[0]
+                    self.be.create_condition_op(
+                        condition=values[0], args=[val for val in values[1:]]
                     )
 
                 # After Region
                 with self.be.InsertionPoint(after_block):
-                    scf.YieldOp(after_block.arguments)
+                    self.be.create_yield_op(after_block.arguments)
 
-                while_op_res = scf._get_op_results_or_values(while_op)
+                while_op_res = self.be.get_scf_op_results(while_op)
                 return while_op_res
 
             case rg.Undef(name):
                 # HACK
-                return arith.constant(self.be.i32, 0)
+                return self.be.create_constant_i32(0)
 
             case sg.CallFQN(
                 fqn=sg.FQN() as callee_fqn, io=io_val, args=args_vals
@@ -545,7 +563,7 @@ class Lowering:
 
                 type_expr: sg.TypeExpr = cast(sg.TypeExpr, callee_ti.type_expr)
 
-                argtys: list[ir.Type] = []
+                argtys: list[Any] = []
                 for arg in args_vals:
                     [ti] = mdmap.lookup_typeinfo(arg)
                     arg_types = self.be.lower_type(
@@ -612,7 +630,7 @@ class Lowering:
                 #             visibility="private",
                 #         )
 
-                call = func.call(result_types, c_name, lowered_args)
+                call = self.be.create_function_call(result_types, c_name, lowered_args)
                 return [io_val, call]
             case rg.PyNone():
                 return self.be.create_none()
@@ -633,7 +651,7 @@ class Lowering:
         opname, _, attr = mlir_op.partition(" ")
         return self.be.create_mlir_asm(opname, attr, result_types, args)
 
-    def get_port_type(self, port) -> ir.Attribute:
+    def get_port_type(self, port) -> Any:
         if port.name == internal_prefix("io"):
             ty = self.be.io_type
         else:
@@ -645,9 +663,10 @@ class Lowering:
             return self._declared[sym_name]
 
         with self.module_body:
-            ret = self._declared[sym_name] = func.FuncOp(
-                sym_name,
-                (argtypes, restypes),
+            ret = self._declared[sym_name] = self.be.create_function_declaration(
+                name=sym_name,
+                arg_types=argtypes,
+                result_types=restypes,
                 visibility="private",
             )
         return ret
