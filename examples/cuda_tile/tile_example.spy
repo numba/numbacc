@@ -1,0 +1,148 @@
+"""
+Test this with:
+  python -m nbcc.cli mlir tile_example.spy out.mlir --backend=cutile
+  ../third-party/cuda-tile/build/bin/cuda-tile-opt --mlir-print-op-generic out.mlir
+
+More:
+  cuda-tile-translate out.mlir --bytecode-version=13.1 --mlir-to-cudatilebc --no-implicit-module -o example.tilebc
+  tileiras --gpu-name sm_120 example.tilebc -o example.cubin
+
+"""
+
+
+from mlir import MLIR_Type, MLIR_op, MLIR_asm, MLIR_unpack
+
+@blue
+def exported() -> None:
+    # Alias for types
+    F64 = MLIR_Type("f64")
+    I32 = MLIR_Type("i32")
+    PtrF64 = MLIR_Type("ptr<{}>", F64)
+    TilePtrF64 = MLIR_Type("!cuda_tile.tile<{}>", PtrF64)
+    Tile1xPtrF64 = MLIR_Type("!cuda_tile.tile<1x{}>", PtrF64)
+    Tile128xPtrF64 = MLIR_Type("!cuda_tile.tile<128x{}>", PtrF64)
+    Tile128xI32 = MLIR_Type("!cuda_tile.tile<128x{}>", I32)
+    Tile128xF64 = MLIR_Type("!cuda_tile.tile<128x{}>", F64)
+
+    Token = MLIR_Type("!cuda_tile.token")
+
+    reshape = MLIR_asm("cuda_tile.reshape", Tile1xPtrF64, (TilePtrF64,))
+    broadcast = MLIR_asm("cuda_tile.broadcast", Tile128xPtrF64, (Tile1xPtrF64,))
+    iota = MLIR_asm("cuda_tile.iota", Tile128xI32, ())
+    offset = MLIR_asm("cuda_tile.offset", Tile128xPtrF64, (Tile128xPtrF64, Tile128xI32))
+    load_ptr_tko = MLIR_asm("cuda_tile.load_ptr_tko {memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}", (Tile128xF64, Token), (Tile128xPtrF64,))
+    unpack_0 = MLIR_unpack(load_ptr_tko, 0)
+
+    bottom = MLIR_Type("()")
+
+    printfn = MLIR_asm(r'cuda_tile.print {str="Data: %f\0A"}', bottom, (Tile128xF64,))
+
+    def export_foo(a: TilePtrF64) -> None:
+        tid = iota()
+        ptrs = offset(broadcast(reshape(a)), tid)
+        tko = load_ptr_tko(ptrs)  # load pointers
+        v = unpack_0(tko)  # MLIR details to get the tile data
+        printfn(v)  # print the tile data
+
+        return
+
+
+    # vec-add
+
+    TileI32 = MLIR_Type("!cuda_tile.tile<{}>", I32)
+    Tile16xF64 = MLIR_Type("!cuda_tile.tile<16xf64>")
+    TensorViewF64Stride1 = MLIR_Type("!cuda_tile.tensor_view<?xf64, strides=[1]>")
+    assume_div_by = MLIR_asm("cuda_tile.assume {predicate=#cuda_tile.div_by<16>}", TilePtrF64, (TilePtrF64,))
+    assume_bound = MLIR_asm("cuda_tile.assume {predicate=#cuda_tile.bounded<0, ?>}", TileI32, (TileI32,))
+    make_tensor_view = MLIR_asm("cuda_tile.make_tensor_view {operandSegmentSizes = array<i32: 1, 1, 0>}", TensorViewF64Stride1, (TilePtrF64, TileI32))
+    PartitionViewF64 = MLIR_Type("!cuda_tile.partition_view<tile=(16), tensor_view<?xf64, strides=[1]>>")
+
+    make_token = MLIR_asm("cuda_tile.make_token", Token, ())
+    get_tile_block_id = MLIR_asm("cuda_tile.get_tile_block_id", (TileI32, TileI32, TileI32), ())
+    make_partition_view = MLIR_asm("cuda_tile.make_partition_view", PartitionViewF64, (TensorViewF64Stride1,))
+    load_view_tko = MLIR_asm("cuda_tile.load_view_tko {memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 1>}", (Tile16xF64, Token), (PartitionViewF64, TileI32, Token))
+
+    unpack_blockIdx_x = MLIR_unpack(get_tile_block_id, 0)
+    unpack_loaded_partition = MLIR_unpack(load_view_tko, 0)
+
+    addf = MLIR_asm("cuda_tile.addf {rounding_mode = #cuda_tile.rounding<nearest_even>}", Tile16xF64, (Tile16xF64, Tile16xF64))
+    store_view_tko = MLIR_asm("cuda_tile.store_view_tko {memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1>}", Token, (Tile16xF64, PartitionViewF64, TileI32, Token))
+
+    def export_vecadd(a: TilePtrF64, size: TileI32, stride: TileI32) -> None:
+        # Argument preparation
+        #     %0 = "cuda_tile.assume"(%arg0) <{predicate = #cuda_tile.div_by<16>}> : (!cuda_tile.tile<ptr<f64>>) -> !cuda_tile.tile<ptr<f64>>
+        a = assume_div_by(a)
+        #     %1 = "cuda_tile.assume"(%arg1) <{predicate = #cuda_tile.bounded<0, ?>}> : (!cuda_tile.tile<i32>) -> !cuda_tile.tile<i32>
+        size = assume_bound(size)
+        #     %2 = "cuda_tile.assume"(%arg2) <{predicate = #cuda_tile.bounded<0, ?>}> : (!cuda_tile.tile<i32>) -> !cuda_tile.tile<i32>
+        stride = assume_bound(stride)
+        #     %3 = "cuda_tile.make_tensor_view"(%0, %1) <{operandSegmentSizes = array<i32: 1, 1, 0>}> : (!cuda_tile.tile<ptr<f64>>, !cuda_tile.tile<i32>) -> !cuda_tile.tensor_view<?xf64, strides=[1]>
+        tensorA = make_tensor_view(a, size)
+
+        # Operations
+        #     %12 = "cuda_tile.make_token"() : () -> !cuda_tile.token
+        token = make_token()
+        #     %13:3 = "cuda_tile.get_tile_block_id"() : () -> (!cuda_tile.tile<i32>, !cuda_tile.tile<i32>, !cuda_tile.tile<i32>)
+        blockidxs = get_tile_block_id()
+        #     %14 = "cuda_tile.make_partition_view"(%3) : (!cuda_tile.tensor_view<?xf64, strides=[1]>) -> !cuda_tile.partition_view<tile=(16), tensor_view<?xf64, strides=[1]>>
+        pviewA = make_partition_view(tensorA)
+        #     %15:2 = "cuda_tile.load_view_tko"(%14, %13#0, %12) <{memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 1>}> : (!cuda_tile.partition_view<tile=(16), tensor_view<?xf64, strides=[1]>>, !cuda_tile.tile<i32>, !cuda_tile.token) -> (!cuda_tile.tile<16xf64>, !cuda_tile.token)
+        loadedA = load_view_tko(pviewA, unpack_blockIdx_x(blockidxs), token)
+
+        #     %18 = "cuda_tile.addf"(%15#0, %17#0) <{rounding_mode = #cuda_tile.rounding<nearest_even>}> : (!cuda_tile.tile<16xf64>, !cuda_tile.tile<16xf64>) -> !cuda_tile.tile<16xf64>
+        added = addf(unpack_loaded_partition(loadedA), unpack_loaded_partition(loadedA))
+
+        #     %20 = "cuda_tile.store_view_tko"(%18, %19, %13#0, %12) <{memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1>}> : (!cuda_tile.tile<16xf64>, !cuda_tile.partition_view<tile=(16), tensor_view<?xf64, strides=[1]>>, !cuda_tile.tile<i32>, !cuda_tile.token) -> !cuda_tile.token
+        store_view_tko(added, pviewA, unpack_blockIdx_x(blockidxs), token)
+
+
+_ = exported()
+
+
+# Print kernel
+# --------------
+# "builtin.module"() ({
+#   "cuda_tile.module"() <{sym_name = "example_module"}> ({
+#     "cuda_tile.entry"() <{arg_attrs = [{}], function_type = (!cuda_tile.tile<ptr<f32>>) -> (), sym_name = "example_kernel"}> ({
+#     ^bb0(%arg0: !cuda_tile.tile<ptr<f32>>):
+#       "cuda_tile.print"() <{str = "Running example module\0A"}> : () -> ()
+#       %0 = "cuda_tile.iota"() : () -> !cuda_tile.tile<128xi32>
+#       %1 = "cuda_tile.reshape"(%arg0) : (!cuda_tile.tile<ptr<f32>>) -> !cuda_tile.tile<1xptr<f32>>
+#       %2 = "cuda_tile.broadcast"(%1) : (!cuda_tile.tile<1xptr<f32>>) -> !cuda_tile.tile<128xptr<f32>>
+#       %3 = "cuda_tile.offset"(%2, %0) : (!cuda_tile.tile<128xptr<f32>>, !cuda_tile.tile<128xi32>) -> !cuda_tile.tile<128xptr<f32>>
+#       %4:2 = "cuda_tile.load_ptr_tko"(%3) <{memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (!cuda_tile.tile<128xptr<f32>>) -> (!cuda_tile.tile<128xf32>, !cuda_tile.token)
+#       "cuda_tile.print"(%4#0) <{str = "Data: %f\0A"}> : (!cuda_tile.tile<128xf32>) -> ()
+#       "cuda_tile.return"() : () -> ()
+#     }) : () -> ()
+#   }) : () -> ()
+# }) : () -> ()
+
+# VecAdd kernel
+# --------------
+# "cuda_tile.module"() <{sym_name = "kernels"}> ({
+#   "cuda_tile.entry"() <{arg_attrs = [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}], function_type = (!cuda_tile.tile<ptr<f64>>, !cuda_tile.tile<i32>, !cuda_tile.tile<i32>, !cuda_tile.tile<ptr<f64>>, !cuda_tile.tile<i32>, !cuda_tile.tile<i32>, !cuda_tile.tile<ptr<f64>>, !cuda_tile.tile<i32>, !cuda_tile.tile<i32>, !cuda_tile.tile<i32>) -> (), optimization_hints = #cuda_tile.optimization_hints<sm_120 = {}>, res_attrs = [], sym_name = "vector_add"}> ({
+#   ^bb0(%arg0: !cuda_tile.tile<ptr<f64>>, %arg1: !cuda_tile.tile<i32>, %arg2: !cuda_tile.tile<i32>, %arg3: !cuda_tile.tile<ptr<f64>>, %arg4: !cuda_tile.tile<i32>, %arg5: !cuda_tile.tile<i32>, %arg6: !cuda_tile.tile<ptr<f64>>, %arg7: !cuda_tile.tile<i32>, %arg8: !cuda_tile.tile<i32>, %arg9: !cuda_tile.tile<i32>):
+#     %0 = "cuda_tile.assume"(%arg0) <{predicate = #cuda_tile.div_by<16>}> : (!cuda_tile.tile<ptr<f64>>) -> !cuda_tile.tile<ptr<f64>>
+#     %1 = "cuda_tile.assume"(%arg1) <{predicate = #cuda_tile.bounded<0, ?>}> : (!cuda_tile.tile<i32>) -> !cuda_tile.tile<i32>
+#     %2 = "cuda_tile.assume"(%arg2) <{predicate = #cuda_tile.bounded<0, ?>}> : (!cuda_tile.tile<i32>) -> !cuda_tile.tile<i32>
+#     %3 = "cuda_tile.make_tensor_view"(%0, %1) <{operandSegmentSizes = array<i32: 1, 1, 0>}> : (!cuda_tile.tile<ptr<f64>>, !cuda_tile.tile<i32>) -> !cuda_tile.tensor_view<?xf64, strides=[1]>
+#     %4 = "cuda_tile.assume"(%arg3) <{predicate = #cuda_tile.div_by<16>}> : (!cuda_tile.tile<ptr<f64>>) -> !cuda_tile.tile<ptr<f64>>
+#     %5 = "cuda_tile.assume"(%arg4) <{predicate = #cuda_tile.bounded<0, ?>}> : (!cuda_tile.tile<i32>) -> !cuda_tile.tile<i32>
+#     %6 = "cuda_tile.assume"(%arg5) <{predicate = #cuda_tile.bounded<0, ?>}> : (!cuda_tile.tile<i32>) -> !cuda_tile.tile<i32>
+#     %7 = "cuda_tile.make_tensor_view"(%4, %5) <{operandSegmentSizes = array<i32: 1, 1, 0>}> : (!cuda_tile.tile<ptr<f64>>, !cuda_tile.tile<i32>) -> !cuda_tile.tensor_view<?xf64, strides=[1]>
+#     %8 = "cuda_tile.assume"(%arg6) <{predicate = #cuda_tile.div_by<16>}> : (!cuda_tile.tile<ptr<f64>>) -> !cuda_tile.tile<ptr<f64>>
+#     %9 = "cuda_tile.assume"(%arg7) <{predicate = #cuda_tile.bounded<0, ?>}> : (!cuda_tile.tile<i32>) -> !cuda_tile.tile<i32>
+#     %10 = "cuda_tile.assume"(%arg8) <{predicate = #cuda_tile.bounded<0, ?>}> : (!cuda_tile.tile<i32>) -> !cuda_tile.tile<i32>
+#     %11 = "cuda_tile.make_tensor_view"(%8, %9) <{operandSegmentSizes = array<i32: 1, 1, 0>}> : (!cuda_tile.tile<ptr<f64>>, !cuda_tile.tile<i32>) -> !cuda_tile.tensor_view<?xf64, strides=[1]>
+#     %12 = "cuda_tile.make_token"() : () -> !cuda_tile.token
+#     %13:3 = "cuda_tile.get_tile_block_id"() : () -> (!cuda_tile.tile<i32>, !cuda_tile.tile<i32>, !cuda_tile.tile<i32>)
+#     %14 = "cuda_tile.make_partition_view"(%3) : (!cuda_tile.tensor_view<?xf64, strides=[1]>) -> !cuda_tile.partition_view<tile=(16), tensor_view<?xf64, strides=[1]>>
+#     %15:2 = "cuda_tile.load_view_tko"(%14, %13#0, %12) <{memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 1>}> : (!cuda_tile.partition_view<tile=(16), tensor_view<?xf64, strides=[1]>>, !cuda_tile.tile<i32>, !cuda_tile.token) -> (!cuda_tile.tile<16xf64>, !cuda_tile.token)
+#     %16 = "cuda_tile.make_partition_view"(%7) : (!cuda_tile.tensor_view<?xf64, strides=[1]>) -> !cuda_tile.partition_view<tile=(16), tensor_view<?xf64, strides=[1]>>
+#     %17:2 = "cuda_tile.load_view_tko"(%16, %13#0, %12) <{memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 1>}> : (!cuda_tile.partition_view<tile=(16), tensor_view<?xf64, strides=[1]>>, !cuda_tile.tile<i32>, !cuda_tile.token) -> (!cuda_tile.tile<16xf64>, !cuda_tile.token)
+#     %18 = "cuda_tile.addf"(%15#0, %17#0) <{rounding_mode = #cuda_tile.rounding<nearest_even>}> : (!cuda_tile.tile<16xf64>, !cuda_tile.tile<16xf64>) -> !cuda_tile.tile<16xf64>
+#     %19 = "cuda_tile.make_partition_view"(%11) : (!cuda_tile.tensor_view<?xf64, strides=[1]>) -> !cuda_tile.partition_view<tile=(16), tensor_view<?xf64, strides=[1]>>
+#     %20 = "cuda_tile.store_view_tko"(%18, %19, %13#0, %12) <{memory_ordering_semantics = 0 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1>}> : (!cuda_tile.tile<16xf64>, !cuda_tile.partition_view<tile=(16), tensor_view<?xf64, strides=[1]>>, !cuda_tile.tile<i32>, !cuda_tile.token) -> !cuda_tile.token
+#     "cuda_tile.return"() : () -> ()
+#   }) : () -> ()
+# }) : () -> ()

@@ -44,7 +44,7 @@ class FunctionInfo:
 
 class TranslationUnit:
     _symtabs: dict[FQN, FunctionInfo]
-    _structs: dict[FQN, Any]
+    _structs: dict[FQN, W_StructType]
     _builtins: dict[FQN, Any]
 
     def __init__(self):
@@ -61,6 +61,12 @@ class TranslationUnit:
 
     def add_builtin(self, fqn: FQN, obj) -> None:
         self._builtins[fqn] = obj
+
+    def is_struct(self, fqn: FQN) -> bool:
+        return fqn in self._structs
+
+    def get_struct(self, fqn: FQN) -> W_StructType:
+        return self._structs[fqn]
 
     def get_function(self, fqn: FQN) -> FunctionInfo:
         return self._symtabs[fqn]
@@ -626,6 +632,8 @@ class ConvertToSExpr:
                 ret = self.emit_expression(stmt.value)
                 ctx.store_local("__scfg_return_value__", ret)
                 return ret
+            case Node("Pass"):
+                return ctx.get_io()
             case _:
                 raise NotImplementedError(stmt)
 
