@@ -2,9 +2,10 @@ import os
 import os.path
 import tempfile
 from contextlib import contextmanager
-from ctypes import CDLL, byref, c_double
 from pathlib import Path
 from typing import Generator, Any
+from subprocess import check_output, PIPE
+from io import StringIO
 
 import pytest
 from mlir.runtime import (
@@ -52,4 +53,5 @@ def test_cuda_tile_to_mlir():
     with compile_mlir("tile_example.spy") as mlir_mod:
         mlir_text = mlir_mod.operation.get_asm()
         assert "entry @spy_tile_example$exported$export_foo" in mlir_text
-        assert "ntry @spy_tile_example$exported$export_vecadd" in mlir_text
+        assert "entry @spy_tile_example$exported$export_vecadd" in mlir_text
+        bcbytes = check_output(["cuda-tile-translate", "--bytecode-version=13.1", "--mlir-to-cudatilebc", "--no-implicit-module"], input=mlir_text.encode())

@@ -6,7 +6,8 @@ cmake -G Ninja -S . -B build \
     -DCMAKE_INSTALL_PREFIX=$PREFIX
 
 # Build
-cmake --build build
+cmake --build build --target install
+
 set -e
 $PYTHON setup.py install --single-version-externally-managed --record=record.txt
 cat record.txt
