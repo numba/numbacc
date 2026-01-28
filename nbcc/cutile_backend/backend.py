@@ -22,6 +22,7 @@ import cuda_tile._mlir.ir as ir  # Context, Location, Module, Type
 from nbcc.developer import TODO
 from nbcc.mlir_lowering import LowerStates
 
+
 def entry(
     sym_name,
     function_type,
@@ -313,34 +314,52 @@ class CuTileBackend(BackendInterface):
     # Control flow methods
     def create_if_op(self, condition, result_types, has_else=True):
         """Create if-else control flow operation - may not be supported in CuTile."""
-        raise UnsupportedError("SCF if operations not supported in CuTile backend")
+        raise UnsupportedError(
+            "SCF if operations not supported in CuTile backend"
+        )
 
     def create_yield_op(self, operands):
         """Create yield operation - may not be supported in CuTile."""
-        raise UnsupportedError("SCF yield operations not supported in CuTile backend")
+        raise UnsupportedError(
+            "SCF yield operations not supported in CuTile backend"
+        )
 
     def create_while_op(self, result_types, init_args):
         """Create while loop operation - may not be supported in CuTile."""
-        raise UnsupportedError("SCF while operations not supported in CuTile backend")
+        raise UnsupportedError(
+            "SCF while operations not supported in CuTile backend"
+        )
 
     def create_condition_op(self, condition, args):
         """Create condition operation - may not be supported in CuTile."""
-        raise UnsupportedError("SCF condition operations not supported in CuTile backend")
+        raise UnsupportedError(
+            "SCF condition operations not supported in CuTile backend"
+        )
 
     def get_scf_op_results(self, while_op):
         """Get results from SCF operation - may not be supported in CuTile."""
-        raise UnsupportedError("SCF operation results not supported in CuTile backend")
+        raise UnsupportedError(
+            "SCF operation results not supported in CuTile backend"
+        )
 
     # Function operation methods
     def create_function_call(self, result_types, callee, args):
         """Create function call operation - limited support in CuTile."""
-        raise UnsupportedError("Function calls not supported in CuTile backend")
+        raise UnsupportedError(
+            "Function calls not supported in CuTile backend"
+        )
 
-    def create_function_declaration(self, name, arg_types, result_types, visibility="private"):
+    def create_function_declaration(
+        self, name, arg_types, result_types, visibility="private"
+    ):
         """Create function declaration - limited support in CuTile."""
-        raise UnsupportedError("Function declarations not supported in CuTile backend")
+        raise UnsupportedError(
+            "Function declarations not supported in CuTile backend"
+        )
 
     # String constant method
     def create_string_constant(self, state: LowerStates, value: str):
         """Create string constant - not supported in CuTile (no LLVM operations)."""
-        raise UnsupportedError("String constants not supported in CuTile backend (requires LLVM operations)")
+        raise UnsupportedError(
+            "String constants not supported in CuTile backend (requires LLVM operations)"
+        )

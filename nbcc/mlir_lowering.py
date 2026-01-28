@@ -198,7 +198,9 @@ class BackendInterface(ABC):
 
     # Control flow methods
     @abstractmethod
-    def create_if_op(self, condition: Any, result_types: list, has_else: bool = True) -> Any:
+    def create_if_op(
+        self, condition: Any, result_types: list, has_else: bool = True
+    ) -> Any:
         """Create if-else control flow operation."""
 
     @abstractmethod
@@ -219,12 +221,19 @@ class BackendInterface(ABC):
 
     # Function operation methods
     @abstractmethod
-    def create_function_call(self, result_types: list, callee: str, args: list) -> Any:
+    def create_function_call(
+        self, result_types: list, callee: str, args: list
+    ) -> Any:
         """Create function call operation."""
 
     @abstractmethod
-    def create_function_declaration(self, name: str, arg_types: list,
-                                   result_types: list, visibility: str = "private") -> Any:
+    def create_function_declaration(
+        self,
+        name: str,
+        arg_types: list,
+        result_types: list,
+        visibility: str = "private",
+    ) -> Any:
         """Create function declaration operation."""
 
     # String constant method
@@ -434,7 +443,9 @@ class Lowering:
 
             case rg.PyInt(int(ival)):
                 with state.constant_block:
-                    const = self.be.create_constant_i32(ival)  # HACK: select type
+                    const = self.be.create_constant_i32(
+                        ival
+                    )  # HACK: select type
                 return const
 
             case rg.PyBool(int(ival)):
@@ -636,7 +647,9 @@ class Lowering:
                 #             visibility="private",
                 #         )
 
-                call = self.be.create_function_call(result_types, c_name, lowered_args)
+                call = self.be.create_function_call(
+                    result_types, c_name, lowered_args
+                )
                 return [io_val, call]
             case rg.PyNone():
                 return self.be.create_none()
@@ -669,10 +682,12 @@ class Lowering:
             return self._declared[sym_name]
 
         with self.module_body:
-            ret = self._declared[sym_name] = self.be.create_function_declaration(
-                name=sym_name,
-                arg_types=argtypes,
-                result_types=restypes,
-                visibility="private",
+            ret = self._declared[sym_name] = (
+                self.be.create_function_declaration(
+                    name=sym_name,
+                    arg_types=argtypes,
+                    result_types=restypes,
+                    visibility="private",
+                )
             )
         return ret

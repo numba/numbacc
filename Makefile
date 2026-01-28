@@ -20,6 +20,10 @@ fmt:
 
 
 test:
-	pytest ./nbcc -v --benchmark-disable
+	pytest ./nbcc/tests -v --benchmark-disable
+
+
+test-cuda-tile:
+	pytest ./nbcc/cutile_backend/tests -v --benchmark-disable
 
 .PHONY: deps/spy deps/sealir test fmt build

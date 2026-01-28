@@ -30,11 +30,6 @@ from .mlir_passes import PassManager
 _DEBUG = True
 
 
-
-
-
-
-
 class Backend(BackendInterface):
     _tu: TranslationUnit
     _context: ir.Context
@@ -154,29 +149,38 @@ class Backend(BackendInterface):
     # Control flow methods
     def create_if_op(self, condition, result_types, has_else=True):
         from mlir.dialects import scf
-        return scf.IfOp(cond=condition, results_=result_types, hasElse=has_else)
+
+        return scf.IfOp(
+            cond=condition, results_=result_types, hasElse=has_else
+        )
 
     def create_yield_op(self, operands):
         from mlir.dialects import scf
+
         return scf.YieldOp(operands)
 
     def create_while_op(self, result_types, init_args):
         from mlir.dialects import scf
+
         return scf.WhileOp(results_=result_types, inits=init_args)
 
     def create_condition_op(self, condition, args):
         from mlir.dialects import scf
+
         return scf.ConditionOp(args=args, condition=condition)
 
     def get_scf_op_results(self, while_op):
         from mlir.dialects import scf
+
         return scf._get_op_results_or_values(while_op)
 
     # Function operation methods
     def create_function_call(self, result_types, callee, args):
         return func.call(result_types, callee, args)
 
-    def create_function_declaration(self, name, arg_types, result_types, visibility="private"):
+    def create_function_declaration(
+        self, name, arg_types, result_types, visibility="private"
+    ):
         fntype = ir.FunctionType.get(arg_types, result_types)
         return func.FuncOp(name, fntype, visibility=visibility)
 

@@ -52,8 +52,13 @@ jobs:
       - name: Test
         run: |          
           conda activate ./envs/dev
+          pytest ./nbcc/tests
+          
+      - name: Test cuda-tile
+          run: |          
+          conda activate ./envs/dev
           conda install sklam::cuda_tile_mlir -y
-          pytest ./nbcc
+          pytest ./nbcc/cutile_backend/tests
 
       - name: MyPy
         run: |          

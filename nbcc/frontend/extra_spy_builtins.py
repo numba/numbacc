@@ -101,9 +101,7 @@ def w_MLIR_op(
 
 
 @MLIR.builtin_func("MLIR_unpack")
-def w_MLIR_unpack(
-    vm: "SPyVM", w_fn: W_Func, w_idx: W_Object
-) -> W_BuiltinFunc:
+def w_MLIR_unpack(vm: "SPyVM", w_fn: W_Func, w_idx: W_Object) -> W_BuiltinFunc:
 
     restype = cast(W_MLIR_Type, w_fn.w_functype.w_restype)
 
