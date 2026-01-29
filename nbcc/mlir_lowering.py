@@ -497,6 +497,7 @@ class Lowering:
                     operand_vals.append((yield op))
 
                 result_tys: list[Any] = []
+                packed_result_tys: list[tuple] = []
 
                 # determine result types
                 assert isinstance(body, rg.RegionEnd)
@@ -509,6 +510,7 @@ class Lowering:
                     # Both branches should always return the same types
                     assert left_tys == right_tys, f"{left_tys} != {right_tys}"
                     result_tys.extend(left_tys)
+                    packed_result_tys.append(left_tys)
 
                 # Build the MLIR If-else
                 if_op = self.be.create_if_op(
@@ -526,7 +528,8 @@ class Lowering:
                         value_else = yield orelse
                         self.be.create_yield_op(self.flatten_result_list([x for x in value_else]))
 
-                return if_op.results
+                # repack
+                return self.repack_result_list(packed_result_tys, list(if_op.results))
 
             case rg.Loop(body=rg.RegionEnd() as body, operands=operands):
                 # Cast operands to expected type from pattern match
@@ -576,13 +579,13 @@ class Lowering:
 
                 type_expr: sg.TypeExpr = cast(sg.TypeExpr, callee_ti.type_expr)
 
-                argtys: list[Any] = []
-                for arg in args_vals:
-                    [ti] = mdmap.lookup_typeinfo(arg)
-                    arg_types = self.be.lower_type(
-                        cast(sg.TypeExpr, ti.type_expr)
-                    )
-                    argtys.extend(arg_types)
+                # argtys: list[Any] = []
+                # for arg in args_vals:
+                #     [ti] = mdmap.lookup_typeinfo(arg)
+                #     arg_types = self.be.lower_type(
+                #         cast(sg.TypeExpr, ti.type_expr)
+                #     )
+                #     argtys.extend(arg_types)
 
                 lowered_args = []
                 for arg in args_vals:
@@ -607,7 +610,6 @@ class Lowering:
                     if owner is not None:
                         assert owner.verify()
                     return [io_val, res]
-                    # self.declare_builtins(c_name, argtys, [resty])
                 elif callee_fqn_obj.namespace.fullname == "mlir::asm":
                     result_types = list(
                         self.be.lower_type(
@@ -702,3 +704,31 @@ class Lowering:
             else:
                 flattened.append(val)
         return flattened
+
+    def repack_result_list(self, types, values):
+        i = 0
+        buf = []
+        for ty in types:
+            group = []
+            for j in range(len(ty)):
+                group.append(values[i + j])
+            if len(group) > 1:
+                buf.append(OpResultList(group))
+            else:
+                buf.extend(group)
+            i += len(group)
+        return buf
+
+
+class OpResultList:
+    """Fake OpResultList"""
+    def __init__(self, values):
+        assert len(values) > 1
+        self._values = tuple(values)
+
+    def __getitem__(self, idx):
+        return self._values[idx]
+
+    def __len__(self):
+        return len(self._values)
+
