@@ -86,7 +86,7 @@ jobs:
       - name: Test
         run: |
           conda activate ./envs/dev
-          pytest ./nbcc
+          make test
 
   create-pr:
     needs: [check-update, build-test]

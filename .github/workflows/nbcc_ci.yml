@@ -5,6 +5,8 @@ on:
     paths:
       - .github/workflows/nbcc_ci.yml
       - nbcc/**
+      - Makefile
+      - *.yml
   push:
     branches:
       - main
