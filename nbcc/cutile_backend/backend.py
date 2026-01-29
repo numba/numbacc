@@ -85,7 +85,8 @@ class CuTileBackend(BackendInterface):
             self._i32 = ir.IntegerType.get_signless(32)
             self._i64 = ir.IntegerType.get_signless(64)
             self._boolean = ir.IntegerType.get_signless(1)
-            self._io_type = ir.IntegerType.get_signless(1)
+            self._io_bitype = ir.IntegerType.get_signless(1)
+            self._io_type = ir.Type.parse("!cuda_tile.tile<i1>")
             self._none_type = ir.IntegerType.get_signless(1)
 
     @classmethod
@@ -163,7 +164,7 @@ class CuTileBackend(BackendInterface):
         return op
 
     def initialize_io(self):
-        return self.create_constant(0, self.io_type)
+        return self.create_constant(0, self._io_bitype)
 
     def create_none(self):
         return self.create_constant(0, self.none_type)
@@ -275,7 +276,6 @@ class CuTileBackend(BackendInterface):
 
         @disp.case(by_typename("builtins::bool"))
         def _handle_builtins_bool(self, fqn: FQN, args: tuple):
-            TODO("boolean handling")
             boolty = ir.Type.parse("!cuda_tile.tile<i1>")
             return (boolty,)
 
@@ -292,12 +292,7 @@ class CuTileBackend(BackendInterface):
 
     def handle_mlir_op(self, mlir_op: str, result_types, args):
         """Handle MLIR-specific operations during lowering."""
-        match mlir_op:
-            case "cuda_tile.if":
-                out = args[0]
-                return out
-            case _:
-                raise NotImplementedError(mlir_op)
+        raise NotImplementedError
 
     # Constant creation methods
     def create_constant_i32(self, value: int):
@@ -321,18 +316,16 @@ class CuTileBackend(BackendInterface):
     def create_if_op(self, condition, result_types, operands, has_else=True, ):
         """Create if-else control flow operation - may not be supported in CuTile."""
         from types import SimpleNamespace
-        result_types = []
         ifop = _cuda_tile.IfOp(results_=result_types, condition=condition)
         ns = SimpleNamespace()
         ns.then_block = ifop.thenRegion.blocks.append()
         ns.else_block = ifop.elseRegion.blocks.append()
-        ns.results = operands
+        ns.results = ifop.results_
         return ns
 
     def create_yield_op(self, operands):
         """Create yield operation - may not be supported in CuTile."""
-        ops = []
-        return _cuda_tile.yield_(ops)
+        return _cuda_tile.yield_(operands)
 
     def create_while_op(self, result_types, init_args):
         """Create while loop operation - may not be supported in CuTile."""

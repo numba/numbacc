@@ -434,11 +434,7 @@ class Lowering:
 
             case rg.Unpack(val=source, idx=int(idx)):
                 ports = yield cast(tuple, source)
-                try:
-                    return ports[idx]
-                except Exception:
-                    print('DEBUG: unpack fail', source, ports)
-                    raise
+                return ports[idx]
 
             case rg.DbgValue(value=value):
                 val = yield value
@@ -517,18 +513,18 @@ class Lowering:
                 # Build the MLIR If-else
                 if_op = self.be.create_if_op(
                     condition=condval, result_types=result_tys, has_else=True,
-                    operands=operand_vals,
+                    operands=self.flatten_result_list(operand_vals),
                 )
 
                 with state.push(operand_vals):
                     # Make a detached module to temporarily house the blocks
                     with self.be.InsertionPoint(if_op.then_block):
                         value_body = yield body
-                        self.be.create_yield_op([x for x in value_body])
+                        self.be.create_yield_op(self.flatten_result_list([x for x in value_body]))
 
                     with self.be.InsertionPoint(if_op.else_block):
                         value_else = yield orelse
-                        self.be.create_yield_op([x for x in value_else])
+                        self.be.create_yield_op(self.flatten_result_list([x for x in value_else]))
 
                 return if_op.results
 
@@ -574,6 +570,7 @@ class Lowering:
                 fqn=sg.FQN() as callee_fqn, io=io_val, args=args_vals
             ):
                 mdmap = self.mdmap
+                io_val = (yield io_val)
 
                 [callee_ti] = mdmap.lookup_typeinfo(callee_fqn)
 
@@ -696,3 +693,12 @@ class Lowering:
                 )
             )
         return ret
+
+    def flatten_result_list(self, values):
+        flattened = []
+        for val in values:
+            if type(val).__name__ == "OpResultList":
+                flattened.extend(val)
+            else:
+                flattened.append(val)
+        return flattened
