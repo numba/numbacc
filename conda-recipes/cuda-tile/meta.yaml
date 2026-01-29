@@ -1,5 +1,7 @@
 # Tested usage:
 # conda build ./conda-recipes/cuda-tile --python=3.12 -c defaults -c conda-forge
+#
+# NOTES: conda-forge needed for newer nanobind
 
 {% set version = "13.1.3" %}
 
@@ -20,7 +22,7 @@ requirements:
     - cmake
     - ninja
     - {{ compiler('cxx') }}
-    - conda-forge::nanobind >=2.9
+    - nanobind >=2.9  # currently need conda-forge
     - pybind11
     - python
   host:

@@ -79,7 +79,7 @@ def shared(input_file, output_file):
 
 @main.command()
 @click.argument("input_file", type=click.Path(exists=True, dir_okay=False))
-@click.argument("output_file", type=click.Path(exists=True, dir_okay=False))
+@click.argument("output_file", type=click.Path(dir_okay=False))
 @click.option(
     "--quiet",
     "-q",
@@ -111,6 +111,8 @@ def mlir(input_file, output_file, quiet, backend):
             be_type = Backend
         case "cutile":
             be_type = CuTileBackend
+        case _:
+            raise NotImplementedError(f"{backend!r} is not available")
 
     if quiet:
         # Capture and suppress debug output, only show final MLIR
