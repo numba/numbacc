@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from nbcc.mlir_lowering import BackendInterface, UnsupportedError
 from nbcc.mlir_utils import decode_type_name, parse_composite_type
 from nbcc.frontend import TranslationUnit
@@ -19,9 +19,11 @@ import cuda_tile._mlir.dialects._cuda_tile_ops_gen as _cuda_tile
 from cuda_tile._mlir.extras import types as _tile_types
 import cuda_tile._mlir.ir as ir  # Context, Location, Module, Type
 
+from sealir import ase
 from nbcc.developer import TODO
 from nbcc.mlir_lowering import LowerStates
 
+from ..frontend import grammar as sg
 
 def entry(
     sym_name,
@@ -109,6 +111,15 @@ class CuTileBackend(BackendInterface):
                     return self._body
 
             return ModuleOp("module", loc=ir.Location.name(module_name))
+
+    def get_ll_type(self, expr: ase.SExpr, mdmap: MDMap) -> ir.Type:
+        mds = mdmap.lookup_typeinfo(expr)
+        if not mds:
+            return None
+        [ty] = mds
+        [llty] = self.lower_type(cast(sg.TypeExpr, ty.type_expr))
+        print("DEBUG:", llty)
+        return llty
 
     def create_mlir_asm(self, opname, attr, result_types, args):
         if attr:
@@ -275,13 +286,27 @@ class CuTileBackend(BackendInterface):
         def _handle_builtins_i32(self, fqn: FQN, args: tuple):
             return (self.i32,)
 
+        @disp.case(by_typename("builtins::bool"))
+        def _handle_builtins_bool(self, fqn: FQN, args: tuple):
+            TODO("boolean handling")
+            boolty = ir.Type.parse("!cuda_tile.tile<i1>")
+            return (boolty,)
+
         @disp.case(by_typename("types::NoneType"))
         def _handle_none(self, fqn: FQN, args: tuple):
             return ()
 
     def get_ll_type(self, expr, mdmap) -> ir.Type | None:
         """Get backend type for expression with metadata."""
-        raise NotImplementedError
+        mds = mdmap.lookup_typeinfo(expr)
+        if not mds:
+            return None
+        [ty] = mds
+        lltys = self.lower_type(cast(sg.TypeExpr, ty.type_expr))
+        if len(lltys) != 1:
+            TODO("cannot handle multply values")
+            print(lltys)
+        return lltys[0]
 
     def handle_builtin_op(
         self, op_name: str, args, state, lowering_instance=None
@@ -291,7 +316,12 @@ class CuTileBackend(BackendInterface):
 
     def handle_mlir_op(self, mlir_op: str, result_types, args):
         """Handle MLIR-specific operations during lowering."""
-        raise NotImplementedError
+        match mlir_op:
+            case "cuda_tile.if":
+                out = args[0]
+                return out
+            case _:
+                raise NotImplementedError(mlir_op)
 
     # Constant creation methods
     def create_constant_i32(self, value: int):
@@ -312,17 +342,21 @@ class CuTileBackend(BackendInterface):
         return self.create_constant(int(value), "i1")
 
     # Control flow methods
-    def create_if_op(self, condition, result_types, has_else=True):
+    def create_if_op(self, condition, result_types, operands, has_else=True, ):
         """Create if-else control flow operation - may not be supported in CuTile."""
-        raise UnsupportedError(
-            "SCF if operations not supported in CuTile backend"
-        )
+        from types import SimpleNamespace
+        result_types = []
+        ifop = _cuda_tile.IfOp(results_=result_types, condition=condition)
+        ns = SimpleNamespace()
+        ns.then_block = ifop.thenRegion.blocks.append()
+        ns.else_block = ifop.elseRegion.blocks.append()
+        ns.results = operands
+        return ns
 
     def create_yield_op(self, operands):
         """Create yield operation - may not be supported in CuTile."""
-        raise UnsupportedError(
-            "SCF yield operations not supported in CuTile backend"
-        )
+        ops = []
+        return _cuda_tile.yield_(ops)
 
     def create_while_op(self, result_types, init_args):
         """Create while loop operation - may not be supported in CuTile."""

@@ -293,6 +293,8 @@ class Lowering:
         Lower RVSDG expressions to MLIR operations, handling control flow
         and data flow constructs.
         """
+        from sealir.rvsdg import format_rvsdg
+        print(format_rvsdg(root))
         context = self.be.context
         self.loc = loc = self.be.Location.name(
             f"{self.__class__.__name__}.lower()", context=context
@@ -435,7 +437,11 @@ class Lowering:
 
             case rg.Unpack(val=source, idx=int(idx)):
                 ports = yield cast(tuple, source)
-                return ports[idx]
+                try:
+                    return ports[idx]
+                except Exception:
+                    print('DEBUG: unpack fail', source, ports)
+                    raise
 
             case rg.DbgValue(value=value):
                 val = yield value
@@ -518,7 +524,8 @@ class Lowering:
 
                 # Build the MLIR If-else
                 if_op = self.be.create_if_op(
-                    condition=condval, result_types=result_tys, has_else=True
+                    condition=condval, result_types=result_tys, has_else=True,
+                    operands=operand_vals,
                 )
 
                 with state.push(operand_vals):

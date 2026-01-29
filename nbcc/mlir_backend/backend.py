@@ -147,7 +147,7 @@ class Backend(BackendInterface):
         return arith.constant(self.boolean, value)
 
     # Control flow methods
-    def create_if_op(self, condition, result_types, has_else=True):
+    def create_if_op(self, condition, result_types, operands, has_else=True):
         from mlir.dialects import scf
 
         return scf.IfOp(
