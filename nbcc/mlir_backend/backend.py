@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Sequence, cast
+from typing import Sequence
 
 import mlir.dialects.arith as arith
 import mlir.dialects.cf as cf
@@ -9,13 +9,12 @@ import mlir.ir as ir
 from mlir.dialects import llvm
 from mlir.dialects.transform.interpreter import apply_named_sequence
 from mlir.ir import _GlobalDebug
-from sealir import ase
 from sealir.dispatchtable import DispatchTableBuilder, dispatchtable
 from spy.fqn import FQN
 
 from nbcc.developer import TODO
 from nbcc.mlir_utils import decode_type_name, decode_asm_operation
-from nbcc.mlir_lowering import BackendInterface, MDMap, LowerStates
+from nbcc.mlir_lowering import BackendInterface, LowerStates
 
 from ..frontend import grammar as sg, TranslationUnit
 from .mlir_passes import PassManager
@@ -648,13 +647,6 @@ class Backend(BackendInterface):
             assert bc.verify()
             return bc
 
-    def get_ll_type(self, expr: ase.SExpr, mdmap: MDMap) -> ir.Type:
-        mds = mdmap.lookup_typeinfo(expr)
-        if not mds:
-            return None
-        [ty] = mds
-        [llty] = self.lower_type(cast(sg.TypeExpr, ty.type_expr))
-        return llty
 
     def make_module(self, module_name: str) -> ir.Module:
         with self.context:

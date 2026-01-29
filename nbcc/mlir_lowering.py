@@ -141,9 +141,6 @@ class BackendInterface(ABC):
         tuple of all component types.
         """
 
-    @abstractmethod
-    def get_ll_type(self, expr, mdmap) -> "IRType | None":
-        """Get backend type for expression with metadata."""
 
     @abstractmethod
     def handle_builtin_op(
@@ -511,16 +508,11 @@ class Lowering:
                 for left_port, right_port in zip(
                     body.ports, orelse.ports, strict=True
                 ):
-                    left_ty = self.get_port_type(left_port)
-                    right_ty = self.get_port_type(right_port)
-                    if left_ty is None:
-                        ty = right_ty
-                    elif right_ty is None:
-                        ty = left_ty
-                    else:
-                        assert left_ty == right_ty, f"{left_ty} != {right_ty}"
-                        ty = left_ty
-                    result_tys.append(ty)
+                    left_tys = self.get_port_type(left_port)
+                    right_tys = self.get_port_type(right_port)
+                    # Both branches should always return the same types
+                    assert left_tys == right_tys, f"{left_tys} != {right_tys}"
+                    result_tys.extend(left_tys)
 
                 # Build the MLIR If-else
                 if_op = self.be.create_if_op(
@@ -677,12 +669,18 @@ class Lowering:
         opname, _, attr = mlir_op.partition(" ")
         return self.be.create_mlir_asm(opname, attr, result_types, args)
 
-    def get_port_type(self, port) -> Any:
+    def get_ll_type(self, expr) -> tuple[Any, ...]:
+        """Get backend types for expression with metadata."""
+        mds = self.mdmap.lookup_typeinfo(expr)
+        [ty] = mds
+        lltys = self.be.lower_type(cast(sg.TypeExpr, ty.type_expr))
+        return lltys
+
+    def get_port_type(self, port) -> tuple[Any, ...]:
         if port.name == internal_prefix("io"):
-            ty = self.be.io_type
+            return (self.be.io_type,)
         else:
-            ty = self.be.get_ll_type(port.value, self.mdmap)
-        return ty
+            return self.get_ll_type(port.value)
 
     def declare_builtins(self, sym_name, argtypes, restypes):
         if sym_name in self._declared:

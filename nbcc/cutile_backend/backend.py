@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 from nbcc.mlir_lowering import BackendInterface, UnsupportedError
 from nbcc.mlir_utils import decode_type_name, parse_composite_type
 from nbcc.frontend import TranslationUnit
@@ -18,12 +18,8 @@ import cuda_tile._mlir.dialects._cuda_tile_ops_gen as _cuda_tile
 
 from cuda_tile._mlir.extras import types as _tile_types
 import cuda_tile._mlir.ir as ir  # Context, Location, Module, Type
-
-from sealir import ase
 from nbcc.developer import TODO
 from nbcc.mlir_lowering import LowerStates
-
-from ..frontend import grammar as sg
 
 def entry(
     sym_name,
@@ -111,15 +107,6 @@ class CuTileBackend(BackendInterface):
                     return self._body
 
             return ModuleOp("module", loc=ir.Location.name(module_name))
-
-    def get_ll_type(self, expr: ase.SExpr, mdmap: MDMap) -> ir.Type:
-        mds = mdmap.lookup_typeinfo(expr)
-        if not mds:
-            return None
-        [ty] = mds
-        [llty] = self.lower_type(cast(sg.TypeExpr, ty.type_expr))
-        print("DEBUG:", llty)
-        return llty
 
     def create_mlir_asm(self, opname, attr, result_types, args):
         if attr:
@@ -296,17 +283,6 @@ class CuTileBackend(BackendInterface):
         def _handle_none(self, fqn: FQN, args: tuple):
             return ()
 
-    def get_ll_type(self, expr, mdmap) -> ir.Type | None:
-        """Get backend type for expression with metadata."""
-        mds = mdmap.lookup_typeinfo(expr)
-        if not mds:
-            return None
-        [ty] = mds
-        lltys = self.lower_type(cast(sg.TypeExpr, ty.type_expr))
-        if len(lltys) != 1:
-            TODO("cannot handle multply values")
-            print(lltys)
-        return lltys[0]
 
     def handle_builtin_op(
         self, op_name: str, args, state, lowering_instance=None
