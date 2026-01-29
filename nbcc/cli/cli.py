@@ -1,14 +1,12 @@
 """Main CLI module for NumbaCC."""
 
+import io
+from contextlib import redirect_stderr, redirect_stdout
+
 import click
 
-from nbcc.compiler import (
-    compile as _compile,
-    compile_shared_lib,
-    compile_to_mlir,
-)
-from nbcc.mlir_backend.backend import Backend
-from nbcc.cutile_backend.backend import CuTileBackend
+from nbcc.compiler import compile as _compile
+from nbcc.compiler import compile_shared_lib, compile_to_mlir
 
 
 class SpecialGroup(click.Group):
@@ -101,15 +99,15 @@ def mlir(input_file, output_file, quiet, backend):
     Use --backend to select compilation backend (llvm, cutile, gpu).
     Use --quiet to suppress debug output and show only final MLIR.
     """
-    import sys
-    import io
-    from contextlib import redirect_stdout, redirect_stderr
+
 
     # Backend selection logic - TODO: Implement backend-specific compilation
     match backend:
         case "cpu":
+            from nbcc.mlir_backend.backend import Backend
             be_type = Backend
         case "cutile":
+            from nbcc.cutile_backend.backend import CuTileBackend
             be_type = CuTileBackend
         case _:
             raise NotImplementedError(f"{backend!r} is not available")
