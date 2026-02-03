@@ -19,13 +19,8 @@ This reduces the output arity of IfElse constructs and simplifies the IR when
 branches have redundant passthrough outputs.
 """
 from __future__ import annotations
-from sealir import ase
-from sealir.rvsdg import grammar as rg, format_rvsdg
 
-from nbcc.compiler import egraph_conversion, EGraph
-
-
-from egglog import Expr, function, Set, i64
+from egglog import Expr, Set, function, i64
 
 
 class PassthroughAnalysisResult(Expr):
@@ -58,35 +53,10 @@ def record_passthrough_analysis(
 
 
 def define_rule():
-    from egglog import (
-        ruleset,
-        rule,
-        panic,
-        function,
-        PyObject,
-        Unit,
-        Expr,
-        rewrite,
-        String,
-        set_,
-        union,
-        i64,
-        i64Like,
-        Vec,
-        subsume,
-        Set,
-        Bool,
-        method,
-        delete,
-    )
-    from sealir.eqsat.rvsdg_eqsat import (
-        Term,
-        TermList,
-        Region,
-        PortList,
-        Port,
-        Region,
-    )
+    from egglog import (Bool, Expr, PyObject, Set, String, Unit, Vec, delete,
+                        function, i64, i64Like, method, panic, rewrite, rule,
+                        ruleset, set_, subsume, union)
+    from sealir.eqsat.rvsdg_eqsat import Port, PortList, Region, Term, TermList
 
     class _PruningAction(Expr):
         """Internal action marker for port pruning operations."""
