@@ -141,9 +141,6 @@ class BackendInterface(ABC):
         tuple of all component types.
         """
 
-    @abstractmethod
-    def get_ll_type(self, expr, mdmap) -> "IRType | None":
-        """Get backend type for expression with metadata."""
 
     @abstractmethod
     def handle_builtin_op(
@@ -199,7 +196,8 @@ class BackendInterface(ABC):
     # Control flow methods
     @abstractmethod
     def create_if_op(
-        self, condition: Any, result_types: list, has_else: bool = True
+        self, condition: Any, result_types: list, operands: list,
+        has_else: bool = True,
     ) -> Any:
         """Create if-else control flow operation."""
 
@@ -293,6 +291,8 @@ class Lowering:
         Lower RVSDG expressions to MLIR operations, handling control flow
         and data flow constructs.
         """
+        from sealir.rvsdg import format_rvsdg
+        # print(format_rvsdg(root))
         context = self.be.context
         self.loc = loc = self.be.Location.name(
             f"{self.__class__.__name__}.lower()", context=context
@@ -498,6 +498,7 @@ class Lowering:
                     operand_vals.append((yield op))
 
                 result_tys: list[Any] = []
+                packed_result_tys: list[tuple] = []
 
                 # determine result types
                 assert isinstance(body, rg.RegionEnd)
@@ -505,33 +506,31 @@ class Lowering:
                 for left_port, right_port in zip(
                     body.ports, orelse.ports, strict=True
                 ):
-                    left_ty = self.get_port_type(left_port)
-                    right_ty = self.get_port_type(right_port)
-                    if left_ty is None:
-                        ty = right_ty
-                    elif right_ty is None:
-                        ty = left_ty
-                    else:
-                        assert left_ty == right_ty, f"{left_ty} != {right_ty}"
-                        ty = left_ty
-                    result_tys.append(ty)
+                    left_tys = self.get_port_type(left_port)
+                    right_tys = self.get_port_type(right_port)
+                    # Both branches should always return the same types
+                    assert left_tys == right_tys, f"{left_tys} != {right_tys}"
+                    result_tys.extend(left_tys)
+                    packed_result_tys.append(left_tys)
 
                 # Build the MLIR If-else
                 if_op = self.be.create_if_op(
-                    condition=condval, result_types=result_tys, has_else=True
+                    condition=condval, result_types=result_tys, has_else=True,
+                    operands=self.flatten_result_list(operand_vals),
                 )
 
                 with state.push(operand_vals):
                     # Make a detached module to temporarily house the blocks
                     with self.be.InsertionPoint(if_op.then_block):
                         value_body = yield body
-                        self.be.create_yield_op([x for x in value_body])
+                        self.be.create_yield_op(self.flatten_result_list([x for x in value_body]))
 
                     with self.be.InsertionPoint(if_op.else_block):
                         value_else = yield orelse
-                        self.be.create_yield_op([x for x in value_else])
+                        self.be.create_yield_op(self.flatten_result_list([x for x in value_else]))
 
-                return if_op.results
+                # repack
+                return self.repack_result_list(packed_result_tys, list(if_op.results))
 
             case rg.Loop(body=rg.RegionEnd() as body, operands=operands):
                 # Cast operands to expected type from pattern match
@@ -575,18 +574,19 @@ class Lowering:
                 fqn=sg.FQN() as callee_fqn, io=io_val, args=args_vals
             ):
                 mdmap = self.mdmap
+                io_val = (yield io_val)
 
                 [callee_ti] = mdmap.lookup_typeinfo(callee_fqn)
 
                 type_expr: sg.TypeExpr = cast(sg.TypeExpr, callee_ti.type_expr)
 
-                argtys: list[Any] = []
-                for arg in args_vals:
-                    [ti] = mdmap.lookup_typeinfo(arg)
-                    arg_types = self.be.lower_type(
-                        cast(sg.TypeExpr, ti.type_expr)
-                    )
-                    argtys.extend(arg_types)
+                # argtys: list[Any] = []
+                # for arg in args_vals:
+                #     [ti] = mdmap.lookup_typeinfo(arg)
+                #     arg_types = self.be.lower_type(
+                #         cast(sg.TypeExpr, ti.type_expr)
+                #     )
+                #     argtys.extend(arg_types)
 
                 lowered_args = []
                 for arg in args_vals:
@@ -611,7 +611,6 @@ class Lowering:
                     if owner is not None:
                         assert owner.verify()
                     return [io_val, res]
-                    # self.declare_builtins(c_name, argtys, [resty])
                 elif callee_fqn_obj.namespace.fullname == "mlir::asm":
                     result_types = list(
                         self.be.lower_type(
@@ -670,12 +669,18 @@ class Lowering:
         opname, _, attr = mlir_op.partition(" ")
         return self.be.create_mlir_asm(opname, attr, result_types, args)
 
-    def get_port_type(self, port) -> Any:
+    def get_ll_type(self, expr) -> tuple[Any, ...]:
+        """Get backend types for expression with metadata."""
+        mds = self.mdmap.lookup_typeinfo(expr)
+        [ty] = mds
+        lltys = self.be.lower_type(cast(sg.TypeExpr, ty.type_expr))
+        return lltys
+
+    def get_port_type(self, port) -> tuple[Any, ...]:
         if port.name == internal_prefix("io"):
-            ty = self.be.io_type
+            return (self.be.io_type,)
         else:
-            ty = self.be.get_ll_type(port.value, self.mdmap)
-        return ty
+            return self.get_ll_type(port.value)
 
     def declare_builtins(self, sym_name, argtypes, restypes):
         if sym_name in self._declared:
@@ -691,3 +696,40 @@ class Lowering:
                 )
             )
         return ret
+
+    def flatten_result_list(self, values):
+        flattened = []
+        for val in values:
+            if type(val).__name__ == "OpResultList":
+                flattened.extend(val)
+            else:
+                flattened.append(val)
+        return flattened
+
+    def repack_result_list(self, types, values):
+        i = 0
+        buf = []
+        for ty in types:
+            group = []
+            for j in range(len(ty)):
+                group.append(values[i + j])
+            if len(group) > 1:
+                buf.append(OpResultList(group))
+            else:
+                buf.extend(group)
+            i += len(group)
+        return buf
+
+
+class OpResultList:
+    """Fake OpResultList"""
+    def __init__(self, values):
+        assert len(values) > 1
+        self._values = tuple(values)
+
+    def __getitem__(self, idx):
+        return self._values[idx]
+
+    def __len__(self):
+        return len(self._values)
+

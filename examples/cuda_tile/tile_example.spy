@@ -96,6 +96,25 @@ def exported() -> None:
         store_view_tko(added, pviewA, unpack_blockIdx_x(blockidxs), token)
 
 
+    I1 = MLIR_Type("i1")
+    TileI1 = MLIR_Type("!cuda_tile.tile<{}>", I1)
+    # equal = MLIR_asm("cuda_tile.cmpi {comparison_predicate=#cuda_tile.comparison_predicate<equal>, signedness=#cuda_tile.signedness<signed>}", Tile128xI1, (Tile128xI32, Tile128xI32))
+    # "cuda_tile.constant"() <{value = dense<[1, 2, 3, 4]> : !cuda_tile.tile<4xi32>}> : () -> !cuda_tile.tile<4xi32>
+    const_one = MLIR_asm("cuda_tile.constant {value = dense<true> : !cuda_tile.tile<i1>}", bool, ())
+
+    if_op = MLIR_op("cuda_tile.if", bool, (TileI1,))
+
+    def export_ifelse(a: TilePtrF64) -> None:
+          tid = iota()
+          ptrs = offset(broadcast(reshape(a)), tid)
+          tko = load_ptr_tko(ptrs)  # load pointers
+          v = unpack_0(tko)  # MLIR details to get the tile data
+
+          if const_one():
+            printfn(v)  # print the tile data
+
+          return
+
 _ = exported()
 
 
