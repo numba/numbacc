@@ -196,7 +196,8 @@ class BackendInterface(ABC):
     # Control flow methods
     @abstractmethod
     def create_if_op(
-        self, condition: Any, result_types: list, has_else: bool = True
+        self, condition: Any, result_types: list, operands: list,
+        has_else: bool = True,
     ) -> Any:
         """Create if-else control flow operation."""
 
@@ -291,7 +292,7 @@ class Lowering:
         and data flow constructs.
         """
         from sealir.rvsdg import format_rvsdg
-        print(format_rvsdg(root))
+        # print(format_rvsdg(root))
         context = self.be.context
         self.loc = loc = self.be.Location.name(
             f"{self.__class__.__name__}.lower()", context=context
