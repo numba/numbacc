@@ -13,6 +13,8 @@ on:
     paths:
       - .github/workflows/nbcc_ci.yml
       - nbcc/**
+      - Makefile
+      - *.yml
   workflow_dispatch:
 
 # Add concurrency control
