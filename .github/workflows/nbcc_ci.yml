@@ -6,7 +6,7 @@ on:
       - .github/workflows/nbcc_ci.yml
       - nbcc/**
       - Makefile
-      - *.yml
+      - '*.yml'
   push:
     branches:
       - main
@@ -14,7 +14,7 @@ on:
       - .github/workflows/nbcc_ci.yml
       - nbcc/**
       - Makefile
-      - *.yml
+      - '*.yml'
   workflow_dispatch:
 
 # Add concurrency control
