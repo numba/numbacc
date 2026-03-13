@@ -14,17 +14,19 @@ version: 1
 metadata:
   content_hash:
     osx-arm64: 53161fd1835b7e6a714ae71c9cfee3314b5f365b52813193f9fd2560b334ae95
-    linux-64: 89a022a707b192927991b98e84b96932ac0c45c65f1e048c678cbfbf9a9ab297
+    linux-64: af8a2dbdbbae093220b6e6a0f5a21a92ebf0a6cc7ee6563c48c065bac5b604a1
+    linux-aarch64: 31f8b7215e39dd6d39d3ea738b80418b566338429c83de730d190b4a065ccc57
   channels:
   - url: defaults
     used_env_vars: []
   platforms:
   - linux-64
+  - linux-aarch64
   - osx-arm64
   sources:
   - environment.yml
   time_metadata:
-    created_at: '2025-10-23T15:00:40Z'
+    created_at: '2026-03-12T21:28:22Z'
 package:
 - name: _libgcc_mutex
   version: '0.1'
@@ -35,6 +37,17 @@ package:
   hash:
     md5: c3473ff8bdb3d124ed5ff11ec380d6f9
     sha256: 476626712f60e5ef0fe04c354727152b1ee5285d57ccd3575c7be930122bd051
+  category: main
+  optional: false
+- name: _libgcc_mutex
+  version: '0.1'
+  manager: conda
+  platform: linux-aarch64
+  dependencies: {}
+  url: https://repo.anaconda.com/pkgs/main/linux-aarch64/_libgcc_mutex-0.1-main.conda
+  hash:
+    md5: b272288d02db5520249ca7870c2287b4
+    sha256: 41e43dedb2e5805d15b60d0e337f625c6308b49ec94e1c7a2b34a62257ab850f
   category: main
   optional: false
 - name: _openmp_mutex
@@ -50,30 +63,80 @@ package:
     sha256: 576011048d23f2e03372263493c5529f802286ff53e8426df99a5b11cc2572f3
   category: main
   optional: false
-- name: libgcc-ng
-  version: 11.2.0
+- name: _openmp_mutex
+  version: '5.1'
+  manager: conda
+  platform: linux-aarch64
+  dependencies:
+    _libgcc_mutex: '0.1'
+    libgomp: '>=7.5.0'
+  url: https://repo.anaconda.com/pkgs/main/linux-aarch64/_openmp_mutex-5.1-51_gnu.conda
+  hash:
+    md5: 66329dd81c60123e0d7c4c39b7ee7afe
+    sha256: 70892a5efb5803b565ba889b5479b6e866a0fabce3a7d2f648e494a9e7bff49b
+  category: main
+  optional: false
+- name: libgcc
+  version: 15.2.0
   manager: conda
   platform: linux-64
   dependencies:
-    __glibc: '>=2.17'
+    __glibc: '>=2.28,<3.0.a0'
+    _openmp_mutex: '>=4.5'
+  url: https://repo.anaconda.com/pkgs/main/linux-64/libgcc-15.2.0-h69a1729_7.conda
+  hash:
+    md5: 01fb1b8725fc7f66312b9d409758917a
+    sha256: baf9d8d16e2a8ae7a4d1b80f2c1a932deaca1a87c677a370f6ab4688482db47b
+  category: main
+  optional: false
+- name: libgcc-ng
+  version: 15.2.0
+  manager: conda
+  platform: linux-64
+  dependencies:
+    _libgcc_mutex: '*'
+    libgcc: 15.2.0
+  url: https://repo.anaconda.com/pkgs/main/linux-64/libgcc-ng-15.2.0-h166f726_7.conda
+  hash:
+    md5: 2783efb2502b9caa7f08e25fd54df899
+    sha256: 3a3678f17a8916777d03b83f19f673107b4a9bf55366234dcfa42edbd5173123
+  category: main
+  optional: false
+- name: libgcc-ng
+  version: 11.2.0
+  manager: conda
+  platform: linux-aarch64
+  dependencies:
     _libgcc_mutex: '*'
     _openmp_mutex: ''
-  url: https://repo.anaconda.com/pkgs/main/linux-64/libgcc-ng-11.2.0-h1234567_1.conda
+  url: https://repo.anaconda.com/pkgs/main/linux-aarch64/libgcc-ng-11.2.0-h1234567_1.conda
   hash:
-    md5: a87728dabf3151fb9cfa990bd2eb0464
-    sha256: cdcce11f1c6ca57ba686ab92f3a5c122efe1e0630e00c6ad275624ce79008aa7
+    md5: 067214d7ddc39f6922b9e29be83fe8f9
+    sha256: 7993425b8983b291c8202af70a76d8cba947a2699930ec4c098e579775e1aa24
+  category: main
+  optional: false
+- name: libgomp
+  version: 15.2.0
+  manager: conda
+  platform: linux-64
+  dependencies:
+    __glibc: '>=2.28,<3.0.a0'
+  url: https://repo.anaconda.com/pkgs/main/linux-64/libgomp-15.2.0-h4751f2c_7.conda
+  hash:
+    md5: 82025ed6da944bd419d42d9b1ff116aa
+    sha256: 835e44371812c91563a00dec8bc98c460f8b9f33f50543244bc8774c446a2172
   category: main
   optional: false
 - name: libgomp
   version: 11.2.0
   manager: conda
-  platform: linux-64
+  platform: linux-aarch64
   dependencies:
     _libgcc_mutex: '0.1'
-  url: https://repo.anaconda.com/pkgs/main/linux-64/libgomp-11.2.0-h1234567_1.conda
+  url: https://repo.anaconda.com/pkgs/main/linux-aarch64/libgomp-11.2.0-h1234567_1.conda
   hash:
-    md5: b372c0eea9b60732fdae4b817a63c8cd
-    sha256: a1c6e599df45e116af81c36ec4c9efb1793fa3a0b854dd90dd6c8813cd476e90
+    md5: e3d856b632d874d38bfad1083d547271
+    sha256: f4e31d184af147504354f12f18f6d22f2d3483a6eed6f9e46833c98f52870ed9
   category: main
   optional: false
 - name: make
@@ -86,6 +149,18 @@ package:
   hash:
     md5: 11e034d2d79bfed958791f1fdeb4adcf
     sha256: 366c7133c9b595f5862ef22b0af952e74550e8eeded4b18ea5eb35f8c2ba01a1
+  category: main
+  optional: false
+- name: make
+  version: 4.2.1
+  manager: conda
+  platform: linux-aarch64
+  dependencies:
+    libgcc-ng: '>=10.2.0'
+  url: https://repo.anaconda.com/pkgs/main/linux-aarch64/make-4.2.1-hfd63f10_1.conda
+  hash:
+    md5: e53a77d603b29bd76f22d180b5fc2540
+    sha256: 94b5ab1ceb72289f2821f664dce9d433c3530fe9369a738840738af097e318ba
   category: main
   optional: false
 - name: make

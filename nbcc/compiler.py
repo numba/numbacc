@@ -1,3 +1,4 @@
+from __future__ import annotations
 import logging
 import os
 import subprocess as subp
@@ -6,12 +7,13 @@ import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 from pprint import pprint
-from typing import cast, Sequence, Type
+from typing import cast, Sequence, Type, TYPE_CHECKING
 
 import sealir.rvsdg.grammar as rg
 import spy
 from egglog import EGraph
-from mlir import ir
+if TYPE_CHECKING:
+    from mlir import ir
 from sealir.ase import SExpr, TapeCrawler
 from sealir.eqsat.rvsdg_convert import egraph_conversion
 from sealir.eqsat.rvsdg_eqsat import GraphRoot
@@ -24,7 +26,6 @@ from nbcc.egraph.conversion import ExtendEGraphToRVSDG
 from nbcc.egraph.rules import egraph_convert_metadata, egraph_optimize
 from nbcc.frontend import TranslationUnit, frontend
 from nbcc.frontend.grammar import IRTag, TypeInfo
-from nbcc.mlir_backend.backend import Backend
 from nbcc.mlir_lowering import (
     Lowering,
     MDMap,
@@ -45,8 +46,11 @@ def compile_shared_lib(path: str, out_path: str) -> None:
 
 
 def compile_to_mlir(
-    path: str, be_type: Type[BackendInterface] = Backend
+    path: str, be_type: Type[BackendInterface] | None = None
 ) -> ir.Module:
+    if be_type is None:
+        from nbcc.mlir_backend.backend import Backend
+        be_type = Backend
     tu = frontend(path)
 
     func_map: dict[str, rg.Func]
