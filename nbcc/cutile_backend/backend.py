@@ -18,10 +18,8 @@ import cuda_tile._mlir.dialects._cuda_tile_ops_gen as _cuda_tile
 
 from cuda_tile._mlir.extras import types as _tile_types
 import cuda_tile._mlir.ir as ir  # Context, Location, Module, Type
-
 from nbcc.developer import TODO
 from nbcc.mlir_lowering import LowerStates
-
 
 def entry(
     sym_name,
@@ -87,7 +85,8 @@ class CuTileBackend(BackendInterface):
             self._i32 = ir.IntegerType.get_signless(32)
             self._i64 = ir.IntegerType.get_signless(64)
             self._boolean = ir.IntegerType.get_signless(1)
-            self._io_type = ir.IntegerType.get_signless(1)
+            self._io_bitype = ir.IntegerType.get_signless(1)
+            self._io_type = ir.Type.parse("!cuda_tile.tile<i1>")
             self._none_type = ir.IntegerType.get_signless(1)
 
     @classmethod
@@ -165,7 +164,7 @@ class CuTileBackend(BackendInterface):
         return op
 
     def initialize_io(self):
-        return self.create_constant(0, self.io_type)
+        return self.create_constant(0, self._io_bitype)
 
     def create_none(self):
         return self.create_constant(0, self.none_type)
@@ -275,13 +274,15 @@ class CuTileBackend(BackendInterface):
         def _handle_builtins_i32(self, fqn: FQN, args: tuple):
             return (self.i32,)
 
+        @disp.case(by_typename("builtins::bool"))
+        def _handle_builtins_bool(self, fqn: FQN, args: tuple):
+            boolty = ir.Type.parse("!cuda_tile.tile<i1>")
+            return (boolty,)
+
         @disp.case(by_typename("types::NoneType"))
         def _handle_none(self, fqn: FQN, args: tuple):
             return ()
 
-    def get_ll_type(self, expr, mdmap) -> ir.Type | None:
-        """Get backend type for expression with metadata."""
-        raise NotImplementedError
 
     def handle_builtin_op(
         self, op_name: str, args, state, lowering_instance=None
@@ -312,17 +313,19 @@ class CuTileBackend(BackendInterface):
         return self.create_constant(int(value), "i1")
 
     # Control flow methods
-    def create_if_op(self, condition, result_types, has_else=True):
+    def create_if_op(self, condition, result_types, operands, has_else=True, ):
         """Create if-else control flow operation - may not be supported in CuTile."""
-        raise UnsupportedError(
-            "SCF if operations not supported in CuTile backend"
-        )
+        from types import SimpleNamespace
+        ifop = _cuda_tile.IfOp(results_=result_types, condition=condition)
+        ns = SimpleNamespace()
+        ns.then_block = ifop.thenRegion.blocks.append()
+        ns.else_block = ifop.elseRegion.blocks.append()
+        ns.results = ifop.results_
+        return ns
 
     def create_yield_op(self, operands):
         """Create yield operation - may not be supported in CuTile."""
-        raise UnsupportedError(
-            "SCF yield operations not supported in CuTile backend"
-        )
+        return _cuda_tile.yield_(operands)
 
     def create_while_op(self, result_types, init_args):
         """Create while loop operation - may not be supported in CuTile."""

@@ -8,5 +8,6 @@ prefix:
 platforms:
   - osx-arm64
   - linux-64
+  - linux-aarch64
   # - osx-64
   # - win-64

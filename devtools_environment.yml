@@ -8,6 +8,7 @@ dependencies:
   - notebook
   - mypy
   - numpy
+  - clang
   - pip
   - pip:
     - numba-scfg 

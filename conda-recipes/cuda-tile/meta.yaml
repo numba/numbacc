@@ -12,7 +12,6 @@ package:
 source:
   - git_url: https://github.com/NVIDIA/cuda-tile/
     git_rev: 8a775693b18303d6c696be6ffd06dadad1b32a8e
-    git_depth: 1
   - path: setup.py
   
 build:
