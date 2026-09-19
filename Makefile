@@ -5,7 +5,7 @@ deps/sealir:
 	bash scripts/checkout.sh https://github.com/numba/sealir 69972b22636fe8d8c22cc8b745a6f2fa8e763733 deps/sealir
 
 deps/spy:
-	bash scripts/checkout.sh https://github.com/spylang/spy cfeae1306f91694b7f672a190e478952e9e4257f deps/spy
+	bash scripts/checkout.sh https://github.com/spylang/spy 099ea705f97f6f685f8a3113e027226729fb1be6 deps/spy
 
 
 build:
